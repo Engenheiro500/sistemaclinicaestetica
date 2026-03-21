@@ -59,10 +59,6 @@ export const usePatients = () => {
     }, []);
 
     useEffect(() => {
-        // DEBUG DIRETO BRUTO (BYPASS DE TUDO)
-        supabase.from('patients').select('*').then(({ data, error }) => {
-            console.log('DEBUG BRUTO PACIENTES:', data, error);
-        });
 
         const fetchPatients = async () => {
             console.log('[usePatients] SELECT obrigatório de pacientes no SWR');
@@ -71,13 +67,12 @@ export const usePatients = () => {
                 const { data: { session } } = await supabase.auth.getSession();
                 if (!session?.user) {
                     // ✅ PROTEÇÃO: Não zera dados. Apenas para de carregar se realmente sem sessão.
-                    // Tenta um refresh silencioso antes de desistir
-                    const { data: refreshed } = await supabase.auth.refreshSession();
-                    if (!refreshed.session?.user) {
-                        if (isMountedRef.current) setLoading(false);
-                        return;
-                    }
+                    // Sem usuário = aborta a busca (Trava de Segurança)
+                    if (isMountedRef.current) setLoading(false);
+                    return;
                 }
+                
+                console.log('Fase 2: Buscando Dados... (Patients)');
 
                 // Só mostra loading bloqueante se não houver cache
                 if (globalPatientsCache === null && isMountedRef.current) {

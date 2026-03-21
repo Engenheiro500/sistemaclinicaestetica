@@ -146,6 +146,8 @@ export function useAppointments() {
                     return;
                 }
             }
+            
+            console.log('Fase 2: Buscando Dados... (Appointments)');
 
             if (globalAppointmentsCache === null && isMountedRef.current) {
                 setLoading(true);
@@ -187,10 +189,6 @@ export function useAppointments() {
     };
 
     useEffect(() => {
-        // DEBUG DIRETO BRUTO (BYPASS DE TUDO)
-        supabase.from('appointments').select('*').then(({ data, error }) => {
-            console.log('DEBUG BRUTO APPOINTMENTS:', data, error);
-        });
 
         fetchAppointments();
 

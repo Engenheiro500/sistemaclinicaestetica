@@ -139,98 +139,78 @@ const App: React.FC = () => {
     // 0. Pré-carregar logo e settings para login rápido
     prefetchClinicSettings().catch(() => {});
 
-    // 1. Restaura imediatamente do localStorage para carregar a UI rápido (Fallback local)
-    const savedUser = localStorage.getItem('fisiopro_user');
-    if (savedUser) {
-      const parsed: User = JSON.parse(savedUser);
-      setUser(parsed);
-      setCurrentUser(parsed);
-      const metaRole = (parsed as any).metaRole as string;
-      if (metaRole === 'receptionist') setUserRole(UserRole.RECEPTIONIST);
-      else if (metaRole === 'professional') setUserRole(UserRole.PROFESSIONAL);
-      else setUserRole(UserRole.ADMIN);
-    }
-
-    // 2. Inscreve o App no estado de autenticação para reatividade absoluta (SIGNED_IN, USER_UPDATED, INITIAL_SESSION)
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log(`[App] Auth Event [${event}]:`, session?.user);
-      if ((event === 'SIGNED_IN' || event === 'USER_UPDATED' || event === 'INITIAL_SESSION') && session?.user) {
-        setIsAuthReady(true);
+    const initializeAuth = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
         
-        const meta = session.user.user_metadata;
-        const metaRole = meta?.role as string;
-
-        try {
-          // 1. Busca perfil vitalício no banco PRYMARY PRIORITY
-          const profileResponse = await supabase.from('profiles').select('avatar_url, full_name, role').eq('id', session.user.id).single();
+        if (session?.user) {
+          console.log('Fase 1: Auth OK', session.user.id);
           
-          // 2. Pré-carregamentos secundários não-bloqueantes
-          Promise.all([
-            prefetchPatients(),
-            prefetchAppointments(),
-            prefetchClinicSettings()
-          ]).catch(e => console.error("Falha silenciosa nos prefetches:", e));
-
-          const profile = profileResponse.data;
-
-          const resolvedAvatar = profile?.avatar_url || meta?.avatar_url || '';
-          const resolvedName = profile?.full_name || meta?.name || session.user.email?.split('@')[0] || 'Usuário';
-          const resolvedRoleStr = profile?.role || metaRole;
-
-          if (resolvedRoleStr === 'receptionist') setUserRole(UserRole.RECEPTIONIST);
-          else if (resolvedRoleStr === 'professional') setUserRole(UserRole.PROFESSIONAL);
-          else setUserRole(UserRole.ADMIN);
+          const metaRole = session.user.user_metadata?.role as string;
+          const resolvedName = session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Usuário';
+          
+          let role = UserRole.ADMIN;
+          if (metaRole === 'receptionist') role = UserRole.RECEPTIONIST;
+          else if (metaRole === 'professional') role = UserRole.PROFESSIONAL;
 
           const syncedUser: User = {
             id: session.user.id,
             name: resolvedName,
             email: session.user.email || '',
-            role: resolvedRoleStr === 'receptionist' ? UserRole.RECEPTIONIST 
-                : resolvedRoleStr === 'professional' ? UserRole.PROFESSIONAL 
-                : UserRole.ADMIN,
+            role: role,
             clinicId: 'clinic-123',
-            avatar: resolvedAvatar,
-            ...(resolvedRoleStr ? { metaRole: resolvedRoleStr } as any : {}),
+            avatar: session.user.user_metadata?.avatar_url || '',
+            metaRole: metaRole
           } as any;
 
           setCurrentUser(syncedUser);
           setUser(syncedUser);
-          // Persiste localmente a atualização oficial pra o próximo relogado ser instantâneo
+          setUserRole(role);
           localStorage.setItem('fisiopro_user', JSON.stringify(syncedUser));
+          
+          // Pré-carregamentos opcionais para otimização em background
+          Promise.all([
+            prefetchPatients(),
+            prefetchAppointments()
+          ]).catch(() => {});
 
-        } catch (err) {
-          console.error("Erro na sincronização de perfil pós Auth Change:", err);
+        } else {
+          setUser(null);
+          setCurrentUser(null);
+          localStorage.removeItem('fisiopro_user');
         }
-      } else if (event === 'SIGNED_OUT') {
-        // ✅ Prevenção de Silent Logout:
-        // Token pode expirar transitoriamente. Tenta refresh antes de limpar tudo.
-        try {
-          const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
-          if (!refreshError && refreshed.session?.user) {
-            // Refresh funcionou — não era um logout real, ignora o evento
-            console.info('[Auth] Token renovado automaticamente — silent logout prevenido.');
-            return;
-          }
-        } catch (_) {
-          // Se refresh falhar, é um logout legítimo
-        }
-        setUser(null);
-        setCurrentUser(null);
-        setUserRole(UserRole.ADMIN);
-        localStorage.removeItem('fisiopro_user');
-        setIsAuthReady(true);
-      } else if (!session?.user) {
-        // ✅ Se chegou INITIAL_SESSION ou outro evento e NÃO há sessão no Supabase,
-        // limpa a sessão "fantasma" do localStorage que estava forçando a UI renderizar vazia.
-        console.warn('[App] Supabase sem sessão válida. Limpando sessão fantasma local.');
-        setUser(null);
-        setCurrentUser(null);
-        localStorage.removeItem('fisiopro_user');
-        setIsAuthReady(true);
-      } else {
-        // Para qualquer outro evento de auth não mapeado
+      } catch (err) {
+        console.error("Auth init error", err);
+      } finally {
         setIsAuthReady(true);
       }
+    };
+
+    initializeAuth();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
+       if (event === 'SIGNED_OUT') {
+           setUser(null);
+           setCurrentUser(null);
+           setUserRole(UserRole.ADMIN);
+           localStorage.removeItem('fisiopro_user');
+       } else if (event === 'SIGNED_IN' && session?.user && isAuthReady) {
+           // Se logou depois do load inicial
+           console.log('Fase 1: Auth OK (SIGNED_IN)', session.user.id);
+           const metaRole = session.user.user_metadata?.role as string;
+           const syncedUser: User = {
+            id: session.user.id,
+            name: session.user.user_metadata?.name || 'Usuário',
+            email: session.user.email || '',
+            role: metaRole === 'receptionist' ? UserRole.RECEPTIONIST : metaRole === 'professional' ? UserRole.PROFESSIONAL : UserRole.ADMIN,
+            clinicId: 'clinic-123',
+            avatar: session.user.user_metadata?.avatar_url || '',
+            metaRole: metaRole
+          } as any;
+          setCurrentUser(syncedUser);
+          setUser(syncedUser);
+          localStorage.setItem('fisiopro_user', JSON.stringify(syncedUser));
+       }
     });
 
     return () => {
@@ -269,6 +249,15 @@ const App: React.FC = () => {
   // Rota pública de agendamento
   if (currentRoute === '#agendamento' || currentRoute === '' || currentRoute === '#' || currentRoute === '#/') {
     return <PublicScheduling />;
+  }
+
+  // ✅ Loading State da Fase 1: Segura a aplicação baseada se a sessão ainda está validando
+  if (!isAuthReady) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyItems: 'center', justifyContent: 'center', height: '100vh', background: '#f8fafc' }}>
+          <div style={{ width: 40, height: 40, border: '4px solid #e2e8f0', borderTopColor: 'var(--primary-color, #00a5b5)', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+      </div>
+    );
   }
 
   // Não autenticado → Login

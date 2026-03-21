@@ -41,13 +41,11 @@ export function useTransactions(options?: { dateFrom?: string; dateTo?: string; 
         try {
             const { data: { session } } = await supabase.auth.getSession();
             if (!session?.user) {
-                // ✅ Tenta refresh silencioso antes de desistir
-                const { data: refreshed } = await supabase.auth.refreshSession();
-                if (!refreshed.session?.user) {
-                    if (isMountedRef.current) setLoading(false);
-                    return;
-                }
+                if (isMountedRef.current) setLoading(false);
+                return;
             }
+
+            console.log('Fase 2: Buscando Dados... (Transactions)');
 
             // Só mostra loading bloqueante se não houver cache para esta query
             if (!transactionsCache.has(cacheKey) && isMountedRef.current) {
