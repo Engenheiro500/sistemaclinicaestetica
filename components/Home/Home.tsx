@@ -328,7 +328,7 @@ export const Home = ({ onNavigateToPatient }: { onNavigateToPatient?: (id: strin
                 </div>
 
                 <div className="bg-white rounded-[24px] p-6 border border-slate-100 shadow-sm flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ color: 'var(--primary-color)', backgroundColor: 'color-mix(in srgb, var(--primary-color) 10%, transparent)' }}>
+                    <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ color: '#f97316', backgroundColor: '#fff7ed' }}>
                         <Filter size={24} />
                     </div>
                     <div>

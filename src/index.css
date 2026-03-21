@@ -1,17 +1,30 @@
 @import "tailwindcss";
 
 @theme {
-  --color-cyan-50: #e0f7fa;
-  --color-cyan-100: #b2ebf2;
-  --color-cyan-200: #80deea;
-  --color-cyan-300: #4dd0e1;
-  --color-cyan-400: #26c6da;
-  --color-cyan-500: #00bcd4;
-  --color-cyan-600: #00acc1;
-  --color-cyan-700: #0097a7;
-  --color-cyan-800: #00838f;
-  --color-cyan-900: #006064;
+  /* Sequestro de Cores (Extirpar Blue e Cyan Hardcoded via Color-Mix) */
+  --color-cyan-50: color-mix(in srgb, var(--primary-color) 8%, white);
+  --color-cyan-100: color-mix(in srgb, var(--primary-color) 15%, white);
+  --color-cyan-200: color-mix(in srgb, var(--primary-color) 30%, white);
+  --color-cyan-300: color-mix(in srgb, var(--primary-color) 45%, white);
+  --color-cyan-400: color-mix(in srgb, var(--primary-color) 60%, white);
+  --color-cyan-500: var(--primary-color);
+  --color-cyan-600: color-mix(in srgb, var(--primary-color) 80%, black);
+  --color-cyan-700: color-mix(in srgb, var(--primary-color) 70%, black);
+  --color-cyan-800: color-mix(in srgb, var(--primary-color) 50%, black);
+  --color-cyan-900: color-mix(in srgb, var(--primary-color) 30%, black);
   --color-cyan-brand: var(--primary-color);
+
+  --color-blue-50: color-mix(in srgb, var(--primary-color) 8%, white);
+  --color-blue-100: color-mix(in srgb, var(--primary-color) 15%, white);
+  --color-blue-200: color-mix(in srgb, var(--primary-color) 30%, white);
+  --color-blue-300: color-mix(in srgb, var(--primary-color) 45%, white);
+  --color-blue-400: color-mix(in srgb, var(--primary-color) 60%, white);
+  --color-blue-500: var(--primary-color);
+  --color-blue-600: color-mix(in srgb, var(--primary-color) 80%, black);
+  --color-blue-700: color-mix(in srgb, var(--primary-color) 70%, black);
+  --color-blue-800: color-mix(in srgb, var(--primary-color) 50%, black);
+  --color-blue-900: color-mix(in srgb, var(--primary-color) 30%, black);
+  --color-blue-brand: var(--primary-color);
   
   --font-sans: 'Inter', sans-serif;
 }

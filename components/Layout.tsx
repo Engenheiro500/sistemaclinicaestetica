@@ -221,14 +221,19 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, activeTab, onTab
                 className={`
                   w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group
                   ${activeTab === item.path
-                    ? 'bg-[var(--primary-color)] text-white shadow-lg shadow-cyan-100'
+                    ? 'text-[var(--primary-color)] font-black bg-cyan-100'
                     : 'text-gray-500 hover:bg-cyan-50 hover:text-[var(--primary-color)]'}
                 `}
+                style={
+                  activeTab === item.path
+                    ? { boxShadow: '0 0 16px -3px var(--primary-color)' }
+                    : {}
+                }
               >
-                <span className={activeTab === item.path ? 'text-white' : 'text-gray-400 group-hover:text-[var(--primary-color)]'}>
+                <span className={activeTab === item.path ? 'text-[var(--primary-color)]' : 'text-gray-400 group-hover:text-[var(--primary-color)]'}>
                   {item.icon}
                 </span>
-                <span className="font-bold text-left text-sm">{item.label}</span>
+                <span className="text-left text-sm">{item.label}</span>
               </button>
             ))}
           </nav>
