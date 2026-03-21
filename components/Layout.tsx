@@ -219,16 +219,11 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, activeTab, onTab
                   setIsSidebarOpen(false);
                 }}
                 className={`
-                  w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group
+                  w-full flex items-center gap-3 px-4 py-3 transition-all duration-200 group
                   ${activeTab === item.path
-                    ? 'text-[var(--primary-color)] font-black bg-cyan-100'
-                    : 'text-gray-500 hover:bg-cyan-50 hover:text-[var(--primary-color)]'}
+                    ? 'text-[var(--primary-color)] font-black bg-transparent border-l-4 border-[var(--primary-color)]'
+                    : 'text-gray-500 hover:bg-gray-50 hover:text-[var(--primary-color)] border-l-4 border-transparent'}
                 `}
-                style={
-                  activeTab === item.path
-                    ? { boxShadow: '0 0 16px -3px var(--primary-color)' }
-                    : {}
-                }
               >
                 <span className={activeTab === item.path ? 'text-[var(--primary-color)]' : 'text-gray-400 group-hover:text-[var(--primary-color)]'}>
                   {item.icon}
