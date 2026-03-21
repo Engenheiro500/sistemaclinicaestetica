@@ -84,11 +84,17 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, activeTab, onTab
 
     fetchNotifications();
 
+    const channelName = 'notifications_layout_' + Math.random().toString(36).substring(7);
     const subscription = supabase
-      .channel('public:notifications_layout')
+      .channel(channelName)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications' }, payload => {
+        console.log('[Supabase Realtime] Notificação Nova!', payload);
         const newNotif = payload.new;
-        setDbNotifications(prev => [newNotif, ...prev].slice(0, 50));
+        setDbNotifications(prev => {
+            // Previne duplicação na renderização do array
+            if (prev.some(n => n.id === newNotif.id)) return prev;
+            return [newNotif, ...prev].slice(0, 50);
+        });
         setHasUnread(true);
       })
       .subscribe();

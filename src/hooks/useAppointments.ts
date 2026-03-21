@@ -195,10 +195,15 @@ export function useAppointments() {
         const channelName = 'appointments_' + Math.random().toString(36).substring(7);
         const subscription = supabase
             .channel(channelName)
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'appointments' }, () => {
-                fetchAppointments();
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'appointments' }, (payload) => {
+                console.log('[Supabase Realtime] Mudança em appointments capturada!', payload);
+                fetchAppointments(); // Atualiza o grid visual
             })
-            .subscribe();
+            .subscribe((status) => {
+                if (status === 'SUBSCRIBED') {
+                    console.log('[useAppointments] Realtime conectado no canal:', channelName);
+                }
+            });
 
         return () => {
             supabase.removeChannel(subscription);
