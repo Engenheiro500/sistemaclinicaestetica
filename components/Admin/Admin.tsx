@@ -284,6 +284,26 @@ export const Admin: React.FC<AdminProps> = ({ user }) => {
     }
   };
 
+  // ── Excluir Membro da Equipe (Optimistic UI) ───────────────────────────
+  const handleDeleteMember = async (userId: string) => {
+    if (!window.confirm('Tem certeza que deseja excluir este membro do sistema? Esta ação é irreversível.')) return;
+
+    const previousUsers = [...dbUsers];
+    // Atualização otimista: remove instantaneamente da UI (e dos contadores no topo)
+    setDbUsers(prev => prev.filter(u => u.id !== userId));
+
+    try {
+      const { error } = await supabase.from('profiles').delete().eq('id', userId);
+      if (error) throw error;
+      toast.success('Membro removido com sucesso!');
+    } catch (err: any) {
+      console.error('Erro ao excluir membro:', err);
+      // Reverte a UI caso a deleção no banco falhe
+      setDbUsers(previousUsers);
+      toast.error('Erro ao comunicar com o banco de dados. O membro retornou à lista.');
+    }
+  };
+
   if (view === 'horarios') return <ConfigHorarios onBack={() => setView('main')} />;
 
   const roleLabel = (role: string) =>
@@ -619,7 +639,11 @@ export const Admin: React.FC<AdminProps> = ({ user }) => {
                           </div>
                         </td>
                         <td className="px-8 py-5 text-right">
-                          <button className="p-2 text-slate-200 hover:text-rose-500 transition-all rounded-xl hover:bg-rose-50">
+                          <button 
+                            onClick={() => handleDeleteMember(u.id)}
+                            className="p-2 text-slate-200 hover:text-rose-500 transition-all rounded-xl hover:bg-rose-50 active:scale-95"
+                            title="Excluir Membro"
+                          >
                             <Trash2 size={18} />
                           </button>
                         </td>

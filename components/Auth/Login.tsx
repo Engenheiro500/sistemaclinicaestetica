@@ -358,7 +358,7 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
           <button 
             type="button"
             onClick={() => window.location.hash = '#agendamento'}
-            className="w-full max-w-[280px] flex items-center justify-center gap-2 py-3 px-6 bg-cyan-50/50 text-[var(--primary-color)] font-bold rounded-2xl border border-cyan-100 hover:bg-[var(--primary-color)] hover:text-white hover:border-[var(--primary-color)] transition-all shadow-sm"
+            className="w-full max-w-[280px] flex items-center justify-center gap-2 py-3 px-6 bg-cyan-50 text-[var(--primary-color)] font-bold rounded-2xl border border-cyan-100 hover:bg-cyan-100 hover:opacity-90 active:scale-95 transition-all shadow-sm"
           >
             <Calendar size={18} />
             Agendar Consulta Online
