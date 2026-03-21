@@ -23,7 +23,7 @@ export const PublicScheduling: React.FC = () => {
     const [isSuccess, setIsSuccess] = useState(false);
     const [currentMonth, setCurrentMonth] = useState(startOfMonth(new Date()));
     const [isLoading, setIsLoading] = useState(false);
-    const [bookedTimes, setBookedTimes] = useState<string[]>([]);
+    const [bookedTimes, setBookedTimes] = useState<{ time: string, duration: number }[]>([]);
 
     const { services, loading: loadingServices } = useServices();
     const { settings, blocks, loading: loadingSettings } = useScheduleSettings({ publicMode: true });
@@ -46,13 +46,13 @@ export const PublicScheduling: React.FC = () => {
             try {
                 const { data, error } = await supabase
                     .from('appointments')
-                    .select('time, status')
+                    .select('time, duration, status')
                     .eq('date', form.date)
                     .neq('status', 'CANCELADO');
 
                 if (error) throw error;
                 if (data) {
-                    setBookedTimes(data.map(d => d.time.substring(0, 5)));
+                    setBookedTimes(data.map(d => ({ time: d.time.substring(0, 5), duration: d.duration || 30 })));
                 }
             } catch (error) {
                 console.error("Error fetching booked times:", error);
@@ -123,52 +123,93 @@ export const PublicScheduling: React.FC = () => {
 
     const unavailTimesForSelectedDate = (() => {
         if (!form.date) return [];
-        let unavailable = [...bookedTimes];
-        
-        // --- FILTRO 2: ALMOÇO ---
-        if (currentDaySettings && currentDaySettings.almoco_inicio && currentDaySettings.almoco_fim) {
-             const lunchStart = parseInt(currentDaySettings.almoco_inicio.split(':')[0]) * 60 + parseInt(currentDaySettings.almoco_inicio.split(':')[1]);
-             const lunchEnd = parseInt(currentDaySettings.almoco_fim.split(':')[0]) * 60 + parseInt(currentDaySettings.almoco_fim.split(':')[1]);
-             
-             TIME_OPTIONS.forEach(time => {
-                 const [h, m] = time.split(':').map(Number);
-                 const timeMinutes = h * 60 + m;
-                 
-                 // Se o horário de agendamento (início) cair dentro do período de almoço
-                 if (timeMinutes >= lunchStart && timeMinutes < lunchEnd) {
-                     unavailable.push(time);
-                 }
-             });
-        }
+        let unavailable = new Set<string>();
 
-        // --- FILTRO 3: BLOQUEIOS MANUAIS ---
-        const activeBlocksForDate = blocks.filter(b => b.data === form.date);
-        activeBlocksForDate.forEach(block => {
-            const blockStart = parseInt(block.hora_inicio.split(':')[0]) * 60 + parseInt(block.hora_inicio.split(':')[1]);
-            const blockEnd = parseInt(block.hora_fim.split(':')[0]) * 60 + parseInt(block.hora_fim.split(':')[1]);
+        const timeToMins = (t: string) => parseInt(t.split(':')[0]) * 60 + parseInt(t.split(':')[1]);
+
+        // FILTRO 1: AGENDAMENTOS EXISTENTES (Considerando duração)
+        bookedTimes.forEach(appt => {
+            const startMins = timeToMins(appt.time);
+            const endMins = startMins + appt.duration;
 
             TIME_OPTIONS.forEach(time => {
-                const [h, m] = time.split(':').map(Number);
-                const timeMinutes = h * 60 + m;
-
-                if (timeMinutes >= blockStart && timeMinutes < blockEnd) {
-                    unavailable.push(time);
+                const tMins = timeToMins(time);
+                if (tMins >= startMins && tMins < endMins) {
+                    unavailable.add(time);
                 }
             });
         });
 
-        // --- TEMPO EXPIRADO HOJE ---
+        // FILTRO 2: ALMOÇO
+        if (currentDaySettings && currentDaySettings.almoco_inicio && currentDaySettings.almoco_fim) {
+             const lunchStart = timeToMins(currentDaySettings.almoco_inicio);
+             const lunchEnd = timeToMins(currentDaySettings.almoco_fim);
+             
+             TIME_OPTIONS.forEach(time => {
+                 const tMins = timeToMins(time);
+                 if (tMins >= lunchStart && tMins < lunchEnd) {
+                     unavailable.add(time);
+                 }
+             });
+        }
+
+        // FILTRO 3: BLOQUEIOS MANUAIS
+        const activeBlocksForDate = blocks.filter(b => b.data === form.date);
+        activeBlocksForDate.forEach(block => {
+            const blockStart = timeToMins(block.hora_inicio);
+            const blockEnd = timeToMins(block.hora_fim);
+
+            TIME_OPTIONS.forEach(time => {
+                const tMins = timeToMins(time);
+                if (tMins >= blockStart && tMins < blockEnd) {
+                    unavailable.add(time);
+                }
+            });
+        });
+
+        // FILTRO 4: TEMPO EXPIRADO HOJE
         if (form.date === format(new Date(), 'yyyy-MM-dd')) {
             const now = new Date();
             const currentTotalMinutes = now.getHours() * 60 + now.getMinutes();
-            const pastTimesToday = TIME_OPTIONS.filter(time => {
-                const [h, m] = time.split(':').map(Number);
-                return (h * 60 + m) <= currentTotalMinutes;
+            TIME_OPTIONS.forEach(time => {
+                if (timeToMins(time) <= currentTotalMinutes) {
+                    unavailable.add(time);
+                }
             });
-            unavailable = [...unavailable, ...pastTimesToday];
         }
 
-        return Array.from(new Set(unavailable));
+        // FILTRO 5: SLOT FITTING (Duração do serviço selecionado = serviceDuration)
+        const unavailArray = Array.from(unavailable);
+        const finalUnavailable = new Set(unavailArray);
+
+        TIME_OPTIONS.forEach(time => {
+            if (finalUnavailable.has(time)) return; // Já indisponível
+
+            const startMins = timeToMins(time);
+            const neededEndMins = startMins + serviceDuration;
+
+            // Verificar se as peças lógicas subsequentes estão livres para acomodar o job
+            let tempMins = startMins;
+            while (tempMins < neededEndMins) {
+                const slotTime = `${String(Math.floor(tempMins / 60)).padStart(2, '0')}:${String(tempMins % 60).padStart(2, '0')}`;
+                
+                if (unavailArray.includes(slotTime)) {
+                    finalUnavailable.add(time);
+                    break;
+                }
+                tempMins += 30; // Granularidade de análise
+            }
+            
+            // Fim de Expediente
+            if (currentDaySettings && currentDaySettings.hora_fim) {
+                const eodMins = timeToMins(currentDaySettings.hora_fim);
+                if (neededEndMins > eodMins) {
+                    finalUnavailable.add(time);
+                }
+            }
+        });
+
+        return Array.from(finalUnavailable);
     })();
 
     const handleNext = () => {
