@@ -232,19 +232,18 @@ export const Agenda: React.FC<AgendaProps> = ({ user, onNavigateToPatient, onPat
     if (!date) return new Set<string>();
 
     const occupied = new Set<string>();
+    const timeToMins = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
 
     // 1. Bloquear por agendamentos existentes (considera duration)
     filteredAppointments
       .filter(a => a.date === date && a.id !== newAppointment.id)
       .forEach(a => {
-        const [h, m] = a.time.split(':').map(Number);
-        const startMin = h * 60 + (m || 0);
+        const startMin = timeToMins(a.time);
         const duration = Number(a.duration) || 60;
+        const endMin = startMin + duration;
         TIME_OPTIONS.forEach(slot => {
-          const [sh, sm] = slot.split(':').map(Number);
-          const slotMin = sh * 60 + sm;
-          // Marca como ocupado se o slot cai dentro do intervalo do agendamento
-          if (slotMin >= startMin && slotMin < startMin + duration) {
+          const slotMin = timeToMins(slot);
+          if (slotMin >= startMin && slotMin < endMin) {
             occupied.add(slot);
           }
         });
@@ -255,11 +254,10 @@ export const Agenda: React.FC<AgendaProps> = ({ user, onNavigateToPatient, onPat
       .filter(b => b.data === date)
       .forEach(b => {
         if (b.descricao === 'LIVRE_EXCECAO') return; // exceção libera, não bloqueia
-        const toMin = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
-        const blockStart = toMin(b.hora_inicio);
-        const blockEnd = toMin(b.hora_fim);
+        const blockStart = timeToMins(b.hora_inicio);
+        const blockEnd = timeToMins(b.hora_fim);
         TIME_OPTIONS.forEach(slot => {
-          const slotMin = toMin(slot);
+          const slotMin = timeToMins(slot);
           if (slotMin >= blockStart && slotMin < blockEnd) occupied.add(slot);
         });
       });
@@ -268,7 +266,6 @@ export const Agenda: React.FC<AgendaProps> = ({ user, onNavigateToPatient, onPat
     const dayOfWeek = new Date(date + 'T12:00:00').getDay();
     const dayConfig = settings.find(s => s.dia_semana === dayOfWeek);
     if (dayConfig) {
-      const toMin = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
       TIME_OPTIONS.forEach(slot => {
         const slotTimeStr = slot + ':00';
         if (!dayConfig.esta_ativo) {
@@ -285,8 +282,38 @@ export const Agenda: React.FC<AgendaProps> = ({ user, onNavigateToPatient, onPat
       });
     }
 
-    return occupied;
-  }, [newAppointment.date, newAppointment.id, filteredAppointments, blocks, settings]);
+    // --- FILTRO FINAL: SLOT FITTING ---
+    const finalOccupied = new Set(occupied);
+    const serviceDuration = newAppointment.duration || 60; // default 60min se nao selecionado
+
+    TIME_OPTIONS.forEach(slot => {
+      // Se já está ocupado por algum bloqueio exato, pula
+      if (finalOccupied.has(slot)) return; 
+      
+      const startMins = timeToMins(slot);
+      const neededEndMins = startMins + serviceDuration;
+      
+      let tempMins = startMins;
+      while (tempMins < neededEndMins) {
+        const tempSlot = `${String(Math.floor(tempMins / 60)).padStart(2, '0')}:${String(tempMins % 60).padStart(2, '0')}`;
+        
+        if (occupied.has(tempSlot)) {
+           finalOccupied.add(slot);
+           break;
+        }
+        tempMins += 30; // Mesma grade da TIME_OPTIONS
+      }
+      
+      // End of day check
+      if (dayConfig && dayConfig.hora_fim) {
+         if (neededEndMins > timeToMins(dayConfig.hora_fim)) {
+           finalOccupied.add(slot);
+         }
+      }
+    });
+
+    return finalOccupied;
+  }, [newAppointment.date, newAppointment.duration, newAppointment.id, filteredAppointments, blocks, settings]);
 
   // Quando a data muda e o horário atual fica ocupado, pula para o próximo slot livre
   useEffect(() => {
@@ -776,7 +803,7 @@ export const Agenda: React.FC<AgendaProps> = ({ user, onNavigateToPatient, onPat
             </div>
             <div className="flex-1 overflow-y-auto max-h-[600px]">
               {[7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20].map((hour) => (
-                <div key={hour} className="grid grid-cols-8 border-b border-gray-300 group min-h-[90px]">
+                <div key={hour} className="grid grid-cols-8 border-b border-gray-300 group h-[120px]">
                   <div className="p-4 border-r border-gray-300 bg-gray-50 text-center text-[11px] font-black text-gray-400 pt-4">{String(hour).padStart(2, '0')}:00</div>
                   {[0, 1, 2, 3, 4, 5, 6].slice(0, view === 'day' ? 1 : 7).map((dayIdx) => {
                     const slotDate = new Date(currentDate);
@@ -830,16 +857,29 @@ export const Agenda: React.FC<AgendaProps> = ({ user, onNavigateToPatient, onPat
                     }
 
                     return (
-                      <div key={dayIdx} className={`p-1 border-r border-gray-300 last:border-0 relative group transition-all cursor-pointer ${view === 'day' ? 'col-span-7' : ''} hover:bg-cyan-50/20`} onClick={() => slotApps.length === 0 && handleSlotClick(dateStr, timeStr, slotApps, false, '')}>
-                        <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div key={dayIdx} className={`p-1 border-r border-gray-300 last:border-0 relative group transition-all cursor-pointer ${view === 'day' ? 'col-span-7' : ''} hover:bg-cyan-50/20`} onClick={() => handleSlotClick(dateStr, timeStr, slotApps, false, '')}>
+                        <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity z-0">
                           <Plus size={14} className="text-[var(--primary-color)]" />
                         </div>
-                        {slotApps.map(app => (
-                          <div key={app.id} onClick={(e) => { e.stopPropagation(); handleOpenDetails(app); }} className={`p-2 rounded-xl mb-1 text-left ${app.bgColor} animate-in fade-in zoom-in-95 hover:brightness-95 transition-all cursor-pointer z-10`}>
-                            <p className="text-[10px] font-black leading-tight uppercase">{app.patient}</p>
-                            <p className="text-[8px] opacity-60 font-black mt-1 uppercase">{app.serviceName || app.type || 'Serviço não informado'}</p>
-                          </div>
-                        ))}
+                        {slotApps.map(app => {
+                           const startMin = parseInt(app.time.split(':')[1]) || 0;
+                           const duration = Number(app.duration) || 60;
+                           // 1 hour = 120px -> 1 min = 2px
+                           const topOffset = startMin * 2;
+                           const height = duration * 2;
+
+                           return (
+                             <div 
+                               key={app.id} 
+                               onClick={(e) => { e.stopPropagation(); handleOpenDetails(app); }} 
+                               className={`absolute left-1 right-1 p-2 rounded-xl text-left ${app.bgColor} animate-in fade-in zoom-in-95 hover:brightness-95 transition-all cursor-pointer z-20 shadow-sm border overflow-hidden`}
+                               style={{ top: `${topOffset}px`, height: `${height}px`, minHeight: '40px' }}
+                             >
+                                <p className="text-[10px] font-black leading-tight uppercase truncate">{app.time} - {app.patient}</p>
+                                <p className="text-[8px] opacity-60 font-black mt-1 uppercase truncate">{app.serviceName || app.type || 'Serviço não informado'}</p>
+                             </div>
+                           );
+                        })}
                       </div>
                     );
                   })}
@@ -952,7 +992,8 @@ export const Agenda: React.FC<AgendaProps> = ({ user, onNavigateToPatient, onPat
                       setNewAppointment({
                         ...newAppointment,
                         serviceId: e.target.value,
-                        value: selectedService ? selectedService.value : 0
+                        value: selectedService ? selectedService.value : 0,
+                        duration: selectedService ? (selectedService.duration || 60) : 60
                       });
                     }}
                     className="w-full pl-12 pr-4 py-4 bg-gray-50 border-none rounded-2xl text-sm font-bold text-gray-700 focus:ring-4 focus:ring-cyan-500/5 focus:bg-white outline-none appearance-none"
