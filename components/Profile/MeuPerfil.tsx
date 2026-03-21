@@ -2,8 +2,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   User as UserIcon, Camera, Save, Loader2, Check, AlertCircle,
-  CheckCircle2, Mail, ShieldCheck, Stethoscope, Users, Upload,
+  CheckCircle2, Mail, ShieldCheck, Stethoscope, Users, Upload, X
 } from 'lucide-react';
+import Cropper from 'react-easy-crop';
+import { getCroppedImg } from '../../src/lib/cropImage';
 import { User, UserRole } from '../../types';
 import { supabase } from '../../src/lib/supabase';
 
@@ -40,6 +42,13 @@ export const MeuPerfil: React.FC<MeuPerfilProps> = ({ user, onUserUpdated }) => 
   const [toast, setToast] = useState<ToastMsg | null>(null);
   const [saved, setSaved] = useState(false);
 
+  // Estados para Crop Modal
+  const [cropModalOpen, setCropModalOpen] = useState(false);
+  const [imageToCrop, setImageToCrop] = useState<string | null>(null);
+  const [crop, setCrop] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [croppedAreaPixels, setCroppedAreaPixels] = useState<any>(null);
+
   // Recarrega dados ao montar (sincroniza com banco)
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -70,27 +79,42 @@ export const MeuPerfil: React.FC<MeuPerfilProps> = ({ user, onUserUpdated }) => 
   };
 
   // ── Upload de Avatar ──────────────────────────────────────────────────
-  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > 5 * 1024 * 1024) { showToast('Arquivo muito grande. Máximo: 5MB.', 'error'); return; }
 
-    // Preview imediato (blob local)
     const localUrl = URL.createObjectURL(file);
-    setAvatarPreview(localUrl);
+    setImageToCrop(localUrl);
+    setCropModalOpen(true);
+    setCrop({ x: 0, y: 0 });
+    setZoom(1);
+    
+    if (avatarInputRef.current) {
+      avatarInputRef.current.value = '';
+    }
+  };
+
+  const handleCropConfirm = async () => {
+    if (!imageToCrop || !croppedAreaPixels) return;
+    
     setUploadingAvatar(true);
+    setCropModalOpen(false);
 
     try {
+      const croppedBlob = await getCroppedImg(imageToCrop, croppedAreaPixels);
+      if (!croppedBlob) throw new Error('Falha ao gerar imagem cortada.');
+
       const { data: authData } = await supabase.auth.getUser();
       const userId = authData.user?.id;
       if (!userId) throw new Error('Usuário não autenticado');
 
-      const ext = file.name.split('.').pop();
+      const ext = 'jpg';
       const filePath = `avatars/${userId}/avatar-${Date.now()}.${ext}`;
 
       const { error: uploadError } = await supabase.storage
         .from('user-avatars')
-        .upload(filePath, file, { upsert: true });
+        .upload(filePath, croppedBlob, { upsert: true });
 
       if (uploadError) throw uploadError;
 
@@ -114,10 +138,11 @@ export const MeuPerfil: React.FC<MeuPerfilProps> = ({ user, onUserUpdated }) => 
       
       showToast('Foto salva e atualizada com sucesso!', 'success');
     } catch (err: any) {
-      showToast('Erro ao enviar foto. Tente novamente.', 'error');
-      setAvatarPreview(user.avatar || '');
+      console.error(err);
+      showToast('Erro ao enviar foto cortada. Tente novamente.', 'error');
     } finally {
       setUploadingAvatar(false);
+      setImageToCrop(null);
     }
   };
 
@@ -308,6 +333,76 @@ export const MeuPerfil: React.FC<MeuPerfilProps> = ({ user, onUserUpdated }) => 
           </p>
         </div>
       </div>
+
+      {/* ── Modal de Crop ── */}
+      {cropModalOpen && imageToCrop && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-[32px] w-full max-w-md overflow-hidden shadow-2xl flex flex-col scale-in-center border border-white/20">
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <h3 className="text-xl font-black text-slate-800 tracking-tight">Ajustar Foto</h3>
+                <p className="text-[11px] text-slate-500 font-medium mt-1">Arraste para reposicionar e use a barra para dar zoom.</p>
+              </div>
+              <button 
+                onClick={() => { setCropModalOpen(false); setImageToCrop(null); }}
+                className="w-10 h-10 flex items-center justify-center hover:bg-slate-50 rounded-full text-slate-400 transition-colors"
+              >
+                <X size={20} strokeWidth={3} />
+              </button>
+            </div>
+            
+            <div className="relative w-full h-[320px] bg-slate-900 border-y border-black/10">
+              <Cropper
+                image={imageToCrop}
+                crop={crop}
+                zoom={zoom}
+                aspect={1}
+                cropShape="round"
+                showGrid={false}
+                onCropChange={setCrop}
+                onZoomChange={setZoom}
+                onCropComplete={(_, croppedAreaPixels) => setCroppedAreaPixels(croppedAreaPixels)}
+              />
+            </div>
+
+            <div className="p-6 bg-white space-y-8">
+              <div className="flex items-center gap-5">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Zoom</span>
+                <input
+                  type="range"
+                  value={zoom}
+                  min={1}
+                  max={3}
+                  step={0.1}
+                  aria-labelledby="Zoom"
+                  onChange={(e) => setZoom(Number(e.target.value))}
+                  className="w-full h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer"
+                  style={{ accentColor: 'var(--primary-color)' }}
+                />
+              </div>
+
+              <div className="flex gap-4">
+                <button
+                  onClick={() => { setCropModalOpen(false); setImageToCrop(null); }}
+                  disabled={uploadingAvatar}
+                  className="flex-1 py-4 rounded-2xl font-bold text-sm text-slate-500 bg-slate-50 hover:bg-slate-100 border border-slate-100 transition-colors disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleCropConfirm}
+                  disabled={uploadingAvatar}
+                  className="flex-1 py-4 rounded-2xl font-black text-sm text-white transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50"
+                  style={{ backgroundColor: 'var(--primary-color)', boxShadow: '0 8px 24px -6px var(--primary-color)' }}
+                >
+                  {uploadingAvatar ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} strokeWidth={3} />}
+                  Salvar Foto
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
