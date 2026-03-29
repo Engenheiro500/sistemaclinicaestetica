@@ -264,8 +264,50 @@ export const PublicScheduling: React.FC = () => {
         setIsLoading(true);
 
         try {
-            // Salvar no Banco de Dados (Supabase)
+            // 1. Verificar se paciente já existe (por telefone ou email)
+            let finalPatientId = null;
+            let orQuery = `phone.eq.${form.phone}`;
+            if (form.email && form.email.trim() !== '') {
+                orQuery = `email.eq.${form.email},${orQuery}`;
+            }
+
+            const { data: existingPatients, error: searchError } = await supabase
+                .from('patients')
+                .select('id')
+                .or(orQuery)
+                .limit(1);
+
+            if (searchError) {
+                console.warn("Erro ao buscar paciente:", searchError);
+            }
+
+            if (existingPatients && existingPatients.length > 0) {
+                // Paciente existe, capturar ID
+                finalPatientId = existingPatients[0].id;
+            } else {
+                // Paciente não existe, criar novo
+                const { data: newPatient, error: createError } = await supabase
+                    .from('patients')
+                    .insert({
+                        name: form.name,
+                        phone: form.phone,
+                        email: form.email || null,
+                        status: 'Ativo'
+                    })
+                    .select('id')
+                    .single();
+                
+                if (createError) {
+                   console.error("Erro ao criar paciente no agendamento público:", createError);
+                   // Caso haja erro (ex: RLS bloqueando insert público), o finalPatientId continua null
+                } else if (newPatient) {
+                   finalPatientId = newPatient.id;
+                }
+            }
+
+            // 2. Salvar Agendamento no Banco de Dados (Supabase)
             const { error: apptError } = await supabase.from('appointments').insert({
+                patient_id: finalPatientId,
                 date: form.date,
                 time: form.time,
                 duration: serviceDuration,
@@ -373,11 +415,14 @@ export const PublicScheduling: React.FC = () => {
     }
 
     return (
-        <div className="min-h-screen bg-slate-50 flex flex-col items-center font-sans pb-12">
+        <div 
+            className="min-h-screen bg-slate-50 flex flex-col items-center font-sans pb-12"
+            style={{ '--primary-color': clinicSettings.primary_color || '#0891b2' } as React.CSSProperties}
+        >
             {/* HEADER PÚBLICO */}
             <header className="w-full h-20 bg-white border-b border-slate-200 px-6 md:px-12 flex items-center justify-between sticky top-0 z-40 shadow-sm">
                 <div className="flex items-center gap-3">
-                    <div className="bg-cyan-600 w-10 h-10 rounded-lg flex items-center justify-center overflow-hidden shadow-sm shrink-0">
+                    <div className="bg-[var(--primary-color)] w-10 h-10 rounded-lg flex items-center justify-center overflow-hidden shadow-sm shrink-0">
                         <img src={clinicSettings.logo_url || "https://placehold.co/400x400/00a5b5/ffffff.png?text=Logo"} alt="Logo" className="w-full h-full object-cover" />
                     </div>
                     <div className="text-left hidden sm:block">
@@ -404,7 +449,7 @@ export const PublicScheduling: React.FC = () => {
                     <div className="flex items-center justify-between relative">
                         <div className="absolute left-0 top-1/2 -translate-y-1/2 w-full h-1 bg-slate-200 rounded-full z-0"></div>
                         <div
-                            className="absolute left-0 top-1/2 -translate-y-1/2 h-1 bg-cyan-500 rounded-full z-0 transition-all duration-500 ease-out"
+                            className="absolute left-0 top-1/2 -translate-y-1/2 h-1 bg-[var(--primary-color)] rounded-full z-0 transition-all duration-500 ease-out"
                             style={{ width: `${((currentStep - 1) / (steps.length - 1)) * 100}%` }}
                         ></div>
 
@@ -415,11 +460,11 @@ export const PublicScheduling: React.FC = () => {
                             return (
                                 <div key={step.id} className="relative z-10 flex flex-col items-center gap-2 bg-slate-50">
                                     <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center font-black text-sm transition-all duration-300 border-4 border-slate-50
-                                        ${isCompleted ? 'bg-cyan-500 text-white' : isCurrent ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-600/30' : 'bg-slate-200 text-slate-400'}`}>
+                                        ${isCompleted || isCurrent ? 'bg-[var(--primary-color)] text-white' : 'bg-slate-200 text-slate-400'} ${isCurrent ? 'shadow-lg opacity-100' : isCompleted ? 'opacity-90' : ''}`}>
                                         {isCompleted ? <Check size={20} strokeWidth={3} /> : step.id}
                                     </div>
                                     <span className={`text-[10px] sm:text-xs font-bold uppercase tracking-wider absolute -bottom-6 whitespace-nowrap
-                                        ${isCurrent ? 'text-cyan-700' : isCompleted ? 'text-slate-600' : 'text-slate-400'}`}>
+                                        ${isCurrent ? 'text-[var(--primary-color)]' : isCompleted ? 'text-slate-600' : 'text-slate-400'}`}>
                                         {step.label}
                                     </span>
                                 </div>
@@ -453,12 +498,12 @@ export const PublicScheduling: React.FC = () => {
                                                     key={srv.id}
                                                     onClick={() => setForm({ ...form, serviceId: srv.id })}
                                                     className={`p-5 rounded-2xl border-2 transition-all cursor-pointer flex flex-col gap-3
-                                                        ${isSelected ? 'border-cyan-500 bg-cyan-50/30 shadow-sm' : 'border-slate-100 hover:border-cyan-200 hover:bg-slate-50'}`}
+                                                        ${isSelected ? 'border-[var(--primary-color)] bg-slate-50/50 shadow-sm' : 'border-slate-100 hover:border-[var(--primary-color)] hover:bg-slate-50'}`}
                                                 >
                                                     <div className="flex justify-between items-start">
-                                                        <h3 className={`font-bold ${isSelected ? 'text-cyan-800' : 'text-slate-800'}`}>{srv.name}</h3>
-                                                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center
-                                                            ${isSelected ? 'border-cyan-500 bg-cyan-500 text-white' : 'border-slate-300'}`}>
+                                                        <h3 className={`font-bold ${isSelected ? 'text-[var(--primary-color)]' : 'text-slate-800'}`}>{srv.name}</h3>
+                                                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors
+                                                            ${isSelected ? 'border-[var(--primary-color)] bg-[var(--primary-color)] text-white' : 'border-slate-300'}`}>
                                                             {isSelected && <Check size={12} strokeWidth={4} />}
                                                         </div>
                                                     </div>
@@ -743,7 +788,7 @@ export const PublicScheduling: React.FC = () => {
                         {currentStep < 4 ? (
                             <button
                                 onClick={handleNext}
-                                className="px-8 py-3 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl font-black text-sm uppercase tracking-wider transition-all shadow-md shadow-cyan-600/20 active:scale-95 flex items-center gap-2"
+                                className="px-8 py-3 bg-[var(--primary-color)] hover:opacity-90 text-white rounded-xl font-black text-sm uppercase tracking-wider transition-all shadow-md active:scale-95 flex items-center gap-2"
                             >
                                 Próximo <ChevronRight size={16} />
                             </button>

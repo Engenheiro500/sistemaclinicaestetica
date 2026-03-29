@@ -35,11 +35,14 @@ import {
   VenetianMask,
   Pause,
   Printer,
-  Share2
+  Share2,
+  Upload,
+  Image as ImageIcon
 } from 'lucide-react';
 import { Patient, Appointment, AppointmentStatus, User, UserRole } from '../../types';
 import { useServices } from '../../src/hooks/useServices';
 import { useTransactions } from '../../src/hooks/useTransactions';
+import { useClinicSettings } from '../../src/hooks/useClinicSettings';
 import { supabase } from '../../src/lib/supabase';
 
 interface Subscription {
@@ -79,6 +82,7 @@ interface ClinicalRecord {
   profissional_id: string | null;
   relatorio: string;
   tipo_atendimento: string | null;
+  image_urls?: string[];
   created_at: string;
 }
 
@@ -105,6 +109,17 @@ export const PatientDetail: React.FC<PatientDetailProps> = ({
   const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
   const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
   const [selectedReceipt, setSelectedReceipt] = useState<FinancialHistory | null>(null);
+  const [editableReceipt, setEditableReceipt] = useState({
+     patientName: '',
+     patientCpf: '',
+     value: 0,
+     description: '',
+     date: '',
+     city: 'Porto Alegre',
+     profName: '',
+     profCrefito: '',
+     profDoc: ''
+  });
 
   const { services } = useServices();
 
@@ -120,6 +135,12 @@ export const PatientDetail: React.FC<PatientDetailProps> = ({
     relatorio: '',
     tipo_atendimento: ''
   });
+  const [editingRecordId, setEditingRecordId] = useState<string | null>(null);
+  const [selectedImages, setSelectedImages] = useState<File[]>([]);
+  const [uploadingImages, setUploadingImages] = useState(false);
+  const [recordToDelete, setRecordToDelete] = useState<ClinicalRecord | null>(null);
+
+  const { settings } = useClinicSettings();
 
   const fetchPackages = async () => {
     const { data } = await supabase
@@ -300,27 +321,82 @@ export const PatientDetail: React.FC<PatientDetailProps> = ({
 
   const handleSaveClinicalRecord = async () => {
     if (!newClinicalRecord.relatorio) return;
+    setUploadingImages(true);
     try {
+      let imageUrls: string[] = [];
+      
+      if (editingRecordId) {
+        const oldRecord = clinicalRecords.find(r => r.id === editingRecordId);
+        if (oldRecord && oldRecord.image_urls) {
+          imageUrls = [...oldRecord.image_urls];
+        }
+      }
+
+      for (const file of selectedImages) {
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${patientId}/${Math.random().toString(36).substring(2, 15)}.${fileExt}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('patient-records')
+          .upload(fileName, file);
+
+        if (uploadError) throw uploadError;
+
+        const { data: publicUrlData } = supabase.storage
+          .from('patient-records')
+          .getPublicUrl(fileName);
+
+        if (publicUrlData) {
+          imageUrls.push(publicUrlData.publicUrl);
+        }
+      }
+
       const payload = {
         patient_id: patientId,
         data: new Date().toISOString().split('T')[0],
         profissional_id: user.id || null,
         relatorio: newClinicalRecord.relatorio,
-        tipo_atendimento: newClinicalRecord.tipo_atendimento || 'Avaliação/Evolução'
+        tipo_atendimento: newClinicalRecord.tipo_atendimento || 'Avaliação/Evolução',
+        image_urls: imageUrls
       };
-      console.log('Tentando salvar prontuário:', payload);
-      const { data, error } = await supabase.from('clinical_records').insert([payload]).select();
 
-      console.log('Resultado do insert:', data, error);
-      if (error) throw error;
+      if (editingRecordId) {
+        const { error } = await supabase.from('clinical_records').update(payload).eq('id', editingRecordId);
+        if (error) throw error;
+        toast.success('Prontuário atualizado com sucesso');
+      } else {
+        const { error } = await supabase.from('clinical_records').insert([payload]);
+        if (error) throw error;
+        toast.success('Prontuário salvo com sucesso');
+      }
 
-      toast.success('Prontuário salvo com sucesso');
       setIsClinicalRecordModalOpen(false);
       setNewClinicalRecord({ relatorio: '', tipo_atendimento: '' });
+      setSelectedImages([]);
+      setEditingRecordId(null);
       fetchClinicalRecords();
     } catch (err: any) {
-      console.error('Erro detalhado ao salvar prontuário:', err);
+      console.error('Erro ao salvar prontuário:', err);
       toast.error(`Erro ao salvar prontuário: ${err.message || 'Desconhecido'}`);
+    } finally {
+      setUploadingImages(false);
+    }
+  };
+
+  const handleDeleteClinicalRecord = async (record: ClinicalRecord) => {
+    // Atualização otimista
+    setClinicalRecords(prev => prev.filter(r => r.id !== record.id));
+    setRecordToDelete(null);
+    
+    try {
+      const { error } = await supabase.from('clinical_records').delete().eq('id', record.id);
+      if (error) throw error;
+      toast.success('Prontuário removido com sucesso');
+    } catch (err) {
+      console.error(err);
+      toast.error('Erro ao remover prontuário no banco. Dados podem estar dessincronizados.');
+      // Refetch caso de erro para manter integridade visual
+      fetchClinicalRecords();
     }
   };
 
@@ -441,7 +517,96 @@ export const PatientDetail: React.FC<PatientDetailProps> = ({
 
   const handleOpenReceipt = (record: FinancialHistory) => {
     setSelectedReceipt(record);
+    setEditableReceipt({
+      patientName: patientData.name,
+      patientCpf: patientData.cpf || '',
+      value: record.value,
+      description: `1 sessão(ões) de ${record.description}`,
+      date: record.date,
+      city: 'Porto Alegre',
+      profName: user.name || '',
+      profCrefito: user.crefito || '123456-F',
+      profDoc: user.document || '045.123.456-88'
+    });
     setIsReceiptModalOpen(true);
+  };
+
+  const handleGenerateReceiptPDF = () => {
+    import('jspdf').then(({ default: jsPDF }) => {
+      const DocClass = typeof jsPDF === 'function' ? jsPDF : (jsPDF as any).jsPDF;
+      const doc = new (DocClass as any)();
+      const primaryColor = settings.primary_color || '#00a5b5';
+      
+      const hexToRgb = (hex: string) => {
+        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+        return result ? {
+          r: parseInt(result[1], 16),
+          g: parseInt(result[2], 16),
+          b: parseInt(result[3], 16)
+        } : { r: 0, g: 165, b: 181 };
+      };
+      const rgb = hexToRgb(primaryColor);
+
+      if (settings.logo_url) {
+        try {
+          doc.addImage(settings.logo_url, 'PNG', 20, 15, 30, 30);
+        } catch(e) { console.warn("Logo error", e); }
+      } else {
+        doc.setFillColor(rgb.r, rgb.g, rgb.b);
+        doc.rect(20, 15, 30, 30, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(10);
+        doc.text('LOGO', 35, 30, { align: 'center' });
+      }
+
+      doc.setFontSize(22);
+      doc.setTextColor(rgb.r, rgb.g, rgb.b);
+      doc.text('Recibo de Pagamento', 60, 25);
+      
+      doc.setFontSize(10);
+      doc.setTextColor(100);
+      doc.text('DOCUMENTO DIGITAL PROFISSIONAL', 60, 32);
+      
+      doc.setFontSize(12);
+      doc.setTextColor(rgb.r, rgb.g, rgb.b);
+      doc.text(`Nº ${Math.floor(Math.random()*10000)}/${new Date().getFullYear()}`, 190, 25, { align: 'right' });
+
+      doc.setDrawColor(200);
+      doc.line(20, 50, 190, 50);
+
+      doc.setFontSize(12);
+      doc.setTextColor(60);
+      
+      const text = `Recebi de ${editableReceipt.patientName?.toUpperCase()}, portador do CPF ${editableReceipt.patientCpf}, a importância de R$ ${Number(editableReceipt.value).toFixed(2)}, referente a ${editableReceipt.description?.toUpperCase()}.`;
+      const splitText = doc.splitTextToSize(text, 170);
+      doc.text(splitText, 20, 70);
+
+      doc.setFontSize(10);
+      doc.setTextColor(100);
+      doc.text('DATA DE EMISSÃO', 20, 110);
+      doc.setFontSize(12);
+      doc.setTextColor(60);
+      doc.text(`${editableReceipt.city}, ${formatDateDisplay(editableReceipt.date)}`, 20, 118);
+
+      doc.setDrawColor(150);
+      doc.line(65, 150, 145, 150);
+      doc.setFontSize(12);
+      doc.setTextColor(50);
+      doc.text(editableReceipt.profName?.toUpperCase() || 'ASSINATURA', 105, 158, { align: 'center' });
+      
+      doc.setFontSize(9);
+      doc.setTextColor(100);
+      doc.text(`CREFITO: ${editableReceipt.profCrefito}  |  DOC: ${editableReceipt.profDoc}`, 105, 164, { align: 'center' });
+
+      doc.setDrawColor(rgb.r, rgb.g, rgb.b);
+      doc.setLineWidth(2);
+      doc.line(20, 280, 190, 280);
+
+      doc.save(`Recibo_${editableReceipt.patientName?.replace(/\s+/g, '_')}_${editableReceipt.date}.pdf`);
+    }).catch(err => {
+      console.error(err);
+      toast.error("Erro ao gerar PDF.");
+    });
   };
 
   const InfoCard = ({ icon, label, value, subValue, color }: { icon: any, label: string, value: string, subValue?: string, color: string }) => (
@@ -774,7 +939,12 @@ export const PatientDetail: React.FC<PatientDetailProps> = ({
             <div className="flex items-center justify-between mb-8">
               <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Prontuário Técnico e Evolução</h4>
               <button
-                onClick={() => setIsClinicalRecordModalOpen(true)}
+                onClick={() => {
+                  setEditingRecordId(null);
+                  setNewClinicalRecord({ relatorio: '', tipo_atendimento: '' });
+                  setSelectedImages([]);
+                  setIsClinicalRecordModalOpen(true);
+                }}
                 className="flex items-center gap-2 bg-[var(--primary-color)] hover:bg-[#008c9a] text-white px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all shadow-lg shadow-cyan-100 active:scale-95"
               >
                 <Plus size={16} strokeWidth={3} /> Nova Evolução/Relatório
@@ -800,15 +970,43 @@ export const PatientDetail: React.FC<PatientDetailProps> = ({
                           <span className="text-xs font-bold text-slate-400">{formatDateDisplay(record.data)}</span>
                         </div>
                       </div>
-                      <button
-                        onClick={() => handleGeneratePDF(record)}
-                        className="flex items-center gap-2 px-4 py-2 hover:bg-gray-50 border border-gray-100 text-gray-600 rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95"
-                      >
-                        <Download size={14} /> Gerar PDF
-                      </button>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          onClick={() => {
+                            setEditingRecordId(record.id);
+                            setNewClinicalRecord({ relatorio: record.relatorio, tipo_atendimento: record.tipo_atendimento || '' });
+                            setSelectedImages([]);
+                            setIsClinicalRecordModalOpen(true);
+                          }}
+                          className="flex items-center gap-2 px-4 py-2 hover:bg-cyan-50 border border-gray-100 text-[var(--primary-color)] rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95"
+                        >
+                          <Edit size={14} /> Editar
+                        </button>
+                        <button
+                          onClick={() => setRecordToDelete(record)}
+                          className="flex items-center gap-2 px-4 py-2 hover:bg-rose-50 border border-gray-100 text-rose-500 rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95"
+                        >
+                          <Trash2 size={14} /> Remover
+                        </button>
+                        <button
+                          onClick={() => handleGeneratePDF(record)}
+                          className="flex items-center gap-2 px-4 py-2 hover:bg-gray-50 border border-gray-100 text-gray-600 rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95"
+                        >
+                          <Download size={14} /> Gerar PDF
+                        </button>
+                      </div>
                     </div>
                     <div>
                       <p className="text-sm text-gray-600 whitespace-pre-wrap leading-relaxed">{record.relatorio}</p>
+                      {record.image_urls && record.image_urls.length > 0 && (
+                        <div className="mt-4 flex gap-2 flex-wrap">
+                          {record.image_urls.map((url, i) => (
+                            <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="block w-24 h-24 rounded-lg overflow-hidden border border-gray-200 hover:opacity-80 transition-opacity">
+                              <img src={url} alt={`Anexo ${i+1}`} className="w-full h-full object-cover" />
+                            </a>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -841,24 +1039,45 @@ export const PatientDetail: React.FC<PatientDetailProps> = ({
 
               <div className="p-8 bg-gray-50/30">
                 <div className="bg-white rounded-[24px] border border-slate-100 p-10 shadow-sm space-y-12 relative overflow-hidden">
-                  <div className="absolute top-10 left-10 opacity-10"><img src="https://placehold.co/400x400/00a5b5/ffffff.png?text=Logo" alt="Logo" className="w-16 h-16 grayscale" /></div>
+                  <div className="absolute top-10 left-10 opacity-10">
+                    {settings.logo_url ? <img src={settings.logo_url} alt="Logo" className="w-16 h-16 grayscale" /> : <img src="https://placehold.co/400x400/00a5b5/ffffff.png?text=Logo" alt="Logo" className="w-16 h-16 grayscale" />}
+                  </div>
                   <div className="flex justify-between items-start">
-                    <div className="bg-[var(--primary-color)] w-12 h-12 rounded-xl flex items-center justify-center overflow-hidden shadow-sm"><img src="https://placehold.co/400x400/00a5b5/ffffff.png?text=Logo" alt="Logo" className="w-full h-full object-cover" /></div>
-                    <div className="text-right"><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">RECIBO Nº</p><p className="text-sm font-black text-cyan-600">2972/2026</p></div>
+                    <div className="bg-[var(--primary-color)] w-12 h-12 rounded-xl flex items-center justify-center overflow-hidden shadow-sm">
+                      {settings.logo_url ? <img src={settings.logo_url} alt="Logo" className="w-full h-full object-cover" /> : <img src="https://placehold.co/400x400/00a5b5/ffffff.png?text=Logo" alt="Logo" className="w-full h-full object-cover" />}
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">RECIBO Nº</p>
+                      <p className="text-sm font-black text-cyan-600">{Math.floor(Math.random()*10000)}/{new Date().getFullYear()}</p>
+                    </div>
                   </div>
                   <p className="text-gray-600 text-base leading-relaxed font-medium">
-                    Recebi de <span className="font-black text-slate-800 uppercase tracking-tight">{patientData.name}</span>, portador do CPF <span className="font-black text-slate-800">{patientData.cpf}</span>, a importância de <span className="font-black text-cyan-600">R$ {selectedReceipt.value.toFixed(2)}</span>, referente a <span className="font-black text-slate-800">1 sessão(ões)</span> de <span className="font-black text-slate-800 uppercase">{selectedReceipt.description}</span>.
+                    Recebi de <input className="font-black text-slate-800 uppercase tracking-tight bg-transparent border-b border-dashed border-gray-300 min-w-[200px] text-center outline-none focus:border-cyan-500 transition-colors" value={editableReceipt.patientName} onChange={e=>setEditableReceipt({...editableReceipt, patientName: e.target.value})} />, portador do CPF <input className="font-black text-slate-800 bg-transparent border-b border-dashed border-gray-300 w-32 text-center outline-none focus:border-cyan-500 transition-colors" value={editableReceipt.patientCpf} onChange={e=>setEditableReceipt({...editableReceipt, patientCpf: e.target.value})} />, a importância de R$ <input type="number" className="font-black text-cyan-600 bg-transparent border-b border-dashed border-cyan-200 w-24 text-center outline-none focus:border-cyan-500 transition-colors" value={editableReceipt.value} onChange={e=>setEditableReceipt({...editableReceipt, value: Number(e.target.value)})} />, referente a <input className="font-black text-slate-800 uppercase bg-transparent border-b border-dashed border-gray-300 min-w-[250px] text-center outline-none focus:border-cyan-500 transition-colors" value={editableReceipt.description} onChange={e=>setEditableReceipt({...editableReceipt, description: e.target.value})} />.
                   </p>
-                  <div className="space-y-1"><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">DATA DE EMISSÃO</p><p className="text-sm font-bold text-slate-600">Porto Alegre, {selectedReceipt.date}</p></div>
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">DATA DE EMISSÃO</p>
+                    <p className="text-sm font-bold text-slate-600">
+                      <input className="bg-transparent border-b border-dashed border-gray-300 w-32 outline-none focus:border-cyan-500 transition-colors" value={editableReceipt.city} onChange={e=>setEditableReceipt({...editableReceipt, city: e.target.value})} />, 
+                      <input type="date" className="bg-transparent border-b border-dashed border-gray-300 outline-none focus:border-cyan-500 transition-colors ml-1" value={editableReceipt.date} onChange={e=>setEditableReceipt({...editableReceipt, date: e.target.value})} />
+                    </p>
+                  </div>
                   <div className="pt-12 text-center space-y-4">
-                    <div className="w-64 h-px bg-slate-200 mx-auto" /><div className="space-y-1"><p className="text-sm font-black text-slate-800 uppercase">{user.name}</p><div className="flex items-center justify-center gap-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest"><span>CREFITO: {user.crefito || '123456-F'}</span><div className="w-1 h-1 bg-slate-200 rounded-full" /><span>DOC: {user.document || '045.123.456-88'}</span></div></div>
+                    <div className="w-64 h-px bg-slate-200 mx-auto" />
+                    <div className="space-y-1">
+                      <input className="text-sm font-black text-slate-800 uppercase bg-transparent text-center border-b border-dashed border-gray-300 outline-none w-64 focus:border-cyan-500 transition-colors" value={editableReceipt.profName} onChange={e=>setEditableReceipt({...editableReceipt, profName: e.target.value})} />
+                      <div className="flex flex-wrap items-center justify-center gap-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">
+                        <span>CREFITO: <input className="bg-transparent text-center border-b border-dashed border-gray-300 w-24 outline-none focus:border-cyan-500 transition-colors" value={editableReceipt.profCrefito} onChange={e=>setEditableReceipt({...editableReceipt, profCrefito: e.target.value})} /></span>
+                        <div className="w-1 h-1 bg-slate-200 rounded-full" />
+                        <span>DOC: <input className="bg-transparent text-center border-b border-dashed border-gray-300 w-32 outline-none focus:border-cyan-500 transition-colors" value={editableReceipt.profDoc} onChange={e=>setEditableReceipt({...editableReceipt, profDoc: e.target.value})} /></span>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
 
               <div className="p-6 flex items-center gap-4 bg-white">
-                <button className="flex-1 bg-[#10b981] hover:bg-[#059669] text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-lg shadow-emerald-100 flex items-center justify-center gap-2 active:scale-95"><MessageCircle size={18} /> ENVIAR P/ WHATSAPP</button>
-                <button className="flex-1 bg-[var(--primary-color)] hover:bg-[#008c9a] text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-lg shadow-cyan-100 flex items-center justify-center gap-2 active:scale-95"><Download size={18} /> BAIXAR PDF</button>
+                <button onClick={() => alert('Integração com WhatsApp não testada aqui!')} className="flex-1 bg-[#10b981] hover:bg-[#059669] text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-lg shadow-emerald-100 flex items-center justify-center gap-2 active:scale-95"><MessageCircle size={18} /> ENVIAR P/ WHATSAPP</button>
+                <button onClick={handleGenerateReceiptPDF} className="flex-1 bg-[var(--primary-color)] hover:bg-[#008c9a] text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-lg shadow-cyan-100 flex items-center justify-center gap-2 active:scale-95"><Download size={18} /> BAIXAR PDF</button>
               </div>
             </div>
           </div>
@@ -1216,19 +1435,61 @@ export const PatientDetail: React.FC<PatientDetailProps> = ({
                   <textarea
                     value={newClinicalRecord.relatorio}
                     onChange={(e) => setNewClinicalRecord({ ...newClinicalRecord, relatorio: e.target.value })}
-                    className="w-full px-5 py-4 bg-gray-50 border-none rounded-2xl text-sm font-medium focus:ring-2 focus:ring-cyan-500/20 outline-none min-h-[200px] resize-none"
+                    className="w-full px-5 py-4 bg-gray-50 border-none rounded-2xl text-sm font-medium focus:ring-2 focus:ring-cyan-500/20 outline-none min-h-[160px] resize-none"
                     placeholder="Descreva a evolução do paciente, técnicas utilizadas, resposta ao tratamento..."
                   />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Anexar Imagens</label>
+                  <label className="flex items-center gap-2 px-5 py-4 bg-gray-50 border border-gray-100 border-dashed rounded-2xl cursor-pointer hover:bg-gray-100 transition-colors">
+                    <Upload size={18} className="text-gray-400" />
+                    <span className="text-sm font-bold text-gray-500">Selecionar arquivos...</span>
+                    <input type="file" multiple accept="image/*" className="hidden" onChange={(e) => setSelectedImages(Array.from(e.target.files || []))} />
+                  </label>
+                  {selectedImages.length > 0 && (
+                    <p className="text-xs font-bold text-slate-500 mt-2">{selectedImages.length} novo(s) arquivo(s) selecionado(s)</p>
+                  )}
+                  {editingRecordId && clinicalRecords.find(r => r.id === editingRecordId)?.image_urls && (
+                     <p className="text-xs font-bold text-slate-400 mt-1">Já possui {(clinicalRecords.find(r => r.id === editingRecordId)?.image_urls || []).length} anexo(s) salvos.</p>
+                  )}
                 </div>
               </div>
               <div className="p-6 border-t border-gray-50 flex gap-3">
                 <button onClick={() => setIsClinicalRecordModalOpen(false)} className="flex-1 py-3 text-sm font-bold text-slate-500 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors">Cancelar</button>
                 <button
                   onClick={handleSaveClinicalRecord}
-                  disabled={!newClinicalRecord.relatorio}
+                  disabled={!newClinicalRecord.relatorio || uploadingImages}
                   className="flex-1 py-3 text-sm font-black text-white bg-[var(--primary-color)] hover:bg-[#008c9a] rounded-xl shadow-lg shadow-cyan-100 transition-all disabled:opacity-50"
                 >
-                  Salvar
+                  {uploadingImages ? 'Salvando...' : 'Salvar'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      }
+      {
+        recordToDelete && (
+          <div className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-300">
+            <div className="bg-white w-full max-w-[400px] rounded-[32px] shadow-2xl overflow-hidden text-center flex flex-col p-8">
+              <div className="mx-auto w-16 h-16 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center mb-6">
+                <Trash2 size={32} />
+              </div>
+              <h3 className="font-black text-slate-800 text-xl tracking-tight mb-2">Remover Prontuário</h3>
+              <p className="text-sm font-medium text-slate-500 mb-8 leading-relaxed">Você tem certeza que deseja remover este registro?<br/>Esta ação não poderá ser desfeita.</p>
+              
+              <div className="flex gap-3 w-full">
+                <button 
+                  onClick={() => setRecordToDelete(null)} 
+                  className="flex-1 py-4 text-xs font-black uppercase tracking-widest text-slate-500 bg-gray-50 rounded-2xl hover:bg-gray-100 transition-colors"
+                >
+                  Não, cancelar
+                </button>
+                <button
+                  onClick={() => handleDeleteClinicalRecord(recordToDelete)}
+                  className="flex-1 py-4 text-xs font-black uppercase tracking-widest text-white bg-rose-500 hover:bg-rose-600 rounded-2xl shadow-lg shadow-rose-200 transition-all active:scale-95"
+                >
+                  Sim, remover
                 </button>
               </div>
             </div>
