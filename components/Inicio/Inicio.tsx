@@ -1,110 +1,192 @@
-import React, { useState, useMemo } from 'react';
-import { User, Appointment, Patient, AppointmentStatus } from '../../types';
-import { Calendar, Clock, CheckCircle, XCircle, User as UserIcon, MessageCircle, AlertCircle, ChevronRight, Cake } from 'lucide-react';
+import React, { useState, useMemo, useCallback } from 'react';
+import { User, AppointmentStatus } from '../../types';
+import {
+  Calendar, Clock, CheckCircle, XCircle, MessageCircle,
+  AlertCircle, ChevronRight, Cake, ChevronLeft, Loader2
+} from 'lucide-react';
 import { useAppointments } from '../../src/hooks/useAppointments';
 import { usePatients } from '../../src/hooks/usePatients';
+import { supabase } from '../../src/lib/supabase';
 
 interface InicioProps {
   user: User;
   onNavigateToPatient?: (id: string) => void;
 }
 
+// Helpers de data sem dependência de timezone
+const toLocalDateStr = (date: Date): string => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
+const shiftDate = (dateStr: string, days: number): string => {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(y, m - 1, d + days);
+  return toLocalDateStr(dt);
+};
+
+const formatDateLabel = (dateStr: string): string => {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  return dt.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short' });
+};
+
 export const Inicio: React.FC<InicioProps> = ({ user, onNavigateToPatient }) => {
-  const { appointments } = useAppointments();
+  const { appointments, setAppointments } = useAppointments() as any;
   const { patients } = usePatients();
 
-  const [selectedDate, setSelectedDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const todayStr = toLocalDateStr(new Date());
+  const [selectedDate, setSelectedDate] = useState<string>(todayStr);
   const [filterStatus, setFilterStatus] = useState<'TODOS' | AppointmentStatus>('TODOS');
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
 
-  // Filtrar agendamentos pela data selecionada
-  const dayAppointments = useMemo(() => {
-    return appointments.filter(a => a.date === selectedDate).sort((a, b) => a.time.localeCompare(b.time));
-  }, [appointments, selectedDate]);
+  // ── Navegação de data ─────────────────────────────────────────────────────
+  const navigateDay = useCallback((dir: -1 | 1) => {
+    setSelectedDate(prev => shiftDate(prev, dir));
+  }, []);
 
-  // Filtrar ainda mais pela tab ativa (Todos, Pendentes, etc)
+  // ── Atualizar status no Supabase ──────────────────────────────────────────
+  const handleUpdateStatus = useCallback(async (id: string, newStatus: string) => {
+    setUpdatingId(id);
+    try {
+      const { error } = await supabase
+        .from('appointments')
+        .update({ status: newStatus })
+        .eq('id', id);
+
+      if (error) throw error;
+
+      // Atualização local imediata (optimistic)
+      if (setAppointments) {
+        setAppointments((prev: any[]) =>
+          prev.map(a => a.id === id ? { ...a, status: newStatus } : a)
+        );
+      }
+    } catch (err) {
+      console.error('[Inicio] Erro ao atualizar status:', err);
+    } finally {
+      setUpdatingId(null);
+    }
+  }, [setAppointments]);
+
+  // ── Agendamentos ─────────────────────────────────────────────────────────
+  const dayAppointments = useMemo(() =>
+    (appointments || []).filter((a: any) => a.date === selectedDate)
+      .sort((a: any, b: any) => a.time.localeCompare(b.time)),
+    [appointments, selectedDate]
+  );
+
   const filteredAppointments = useMemo(() => {
     if (filterStatus === 'TODOS') return dayAppointments;
-    if (filterStatus === AppointmentStatus.CONFIRMADO) {
-      return dayAppointments.filter(a => a.status === AppointmentStatus.CONFIRMADO || a.status === AppointmentStatus.REALIZADO);
-    }
-    return dayAppointments.filter(a => a.status === filterStatus);
+    if (filterStatus === AppointmentStatus.CONFIRMADO)
+      return dayAppointments.filter((a: any) =>
+        a.status === AppointmentStatus.CONFIRMADO || a.status === AppointmentStatus.REALIZADO
+      );
+    return dayAppointments.filter((a: any) => a.status === filterStatus);
   }, [dayAppointments, filterStatus]);
 
-  // Contadores
-  const totals = useMemo(() => {
-    return {
-      all: dayAppointments.length,
-      pendentes: dayAppointments.filter(a => a.status === AppointmentStatus.PENDENTE || a.status === AppointmentStatus.AGENDADO).length,
-      confirmados: dayAppointments.filter(a => a.status === AppointmentStatus.CONFIRMADO || a.status === AppointmentStatus.REALIZADO).length,
-      cancelados: dayAppointments.filter(a => a.status === AppointmentStatus.CANCELADO).length,
-    };
-  }, [dayAppointments]);
+  const totals = useMemo(() => ({
+    all: dayAppointments.length,
+    pendentes: dayAppointments.filter((a: any) =>
+      a.status === AppointmentStatus.PENDENTE || a.status === AppointmentStatus.AGENDADO
+    ).length,
+    confirmados: dayAppointments.filter((a: any) =>
+      a.status === AppointmentStatus.CONFIRMADO || a.status === AppointmentStatus.REALIZADO
+    ).length,
+    cancelados: dayAppointments.filter((a: any) => a.status === AppointmentStatus.CANCELADO).length,
+  }), [dayAppointments]);
 
-  // Aniversariantes do dia
+  // ── Aniversariantes ──────────────────────────────────────────────────────
   const birthdayPatients = useMemo(() => {
     const [, month, day] = selectedDate.split('-');
     const monthDay = `${month}-${day}`;
-    return patients.filter(p => {
-      if (!p.birthDate && !p.birth_date) return false;
-      const bd = p.birthDate || p.birth_date;
+    return (patients || []).filter((p: any) => {
+      const bd: string | undefined = p.birthDate || p.birth_date;
       if (!bd) return false;
-      // Alguns bd podem ser dd/mm/yyyy ou yyyy-mm-dd
-      if (bd.includes('-')) {
-        return bd.substring(5) === monthDay;
-      } else if (bd.includes('/')) {
+      if (bd.includes('-')) return bd.substring(5) === monthDay;
+      if (bd.includes('/')) {
         const parts = bd.split('/');
-        if (parts.length === 3) {
-          return `${parts[1]}-${parts[0]}` === monthDay;
-        }
+        if (parts.length === 3) return `${parts[1]}-${parts[0]}` === monthDay;
       }
       return false;
     });
   }, [patients, selectedDate]);
 
-  const getPatientName = (patientId: string) => {
-    return patients.find(p => p.id === patientId)?.name || 'Paciente não encontrado';
-  };
+  const getPatientName = (patientId: string) =>
+    (patients || []).find((p: any) => p.id === patientId)?.name || 'Paciente';
 
   const openWhatsApp = (patientId: string) => {
-    const patient = patients.find(p => p.id === patientId);
-    if (!patient || !patient.phone) return;
+    const patient = (patients || []).find((p: any) => p.id === patientId);
+    if (!patient?.phone) return;
     const cleanPhone = patient.phone.replace(/\D/g, '');
-    window.open(`https://wa.me/55${cleanPhone}?text=Olá%20${encodeURIComponent(patient.name)},%20feliz%20aniversário!`, '_blank');
+    window.open(
+      `https://wa.me/55${cleanPhone}?text=Olá%20${encodeURIComponent(patient.name)},%20feliz%20aniversário!%20🎂`,
+      '_blank'
+    );
   };
 
+  const isToday = selectedDate === todayStr;
+
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-10 animate-in fade-in duration-500">
-      {/* Header com Calendário */}
+
+      {/* ── Header ── */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
         <div>
           <h1 className="text-2xl font-black tracking-tight text-slate-800">
             Olá, {user.name.split(' ')[0]} 👋
           </h1>
           <p className="text-slate-500 text-sm mt-1">
-            Aqui está o resumo da sua agenda administrativa.
+            {isToday ? 'Aqui está o resumo da sua agenda de hoje.' : `Visualizando: ${formatDateLabel(selectedDate)}`}
           </p>
         </div>
-        
-        <div className="flex items-center gap-3">
-          <button 
-            onClick={() => setSelectedDate(new Date().toISOString().split('T')[0])}
-            className="px-4 py-2 bg-gray-50 hover:bg-gray-100 text-gray-700 rounded-xl font-bold text-sm transition-colors"
+
+        {/* Navegação de data */}
+        <div className="flex items-center gap-2">
+          {/* Seta esquerda */}
+          <button
+            onClick={() => navigateDay(-1)}
+            className="w-9 h-9 flex items-center justify-center rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-600 transition-colors"
+            title="Dia anterior"
+          >
+            <ChevronLeft size={18} />
+          </button>
+
+          {/* Botão Hoje */}
+          <button
+            onClick={() => setSelectedDate(todayStr)}
+            className={`px-4 py-2 rounded-xl font-bold text-sm transition-colors ${
+              isToday
+                ? 'bg-[var(--primary-color)] text-white shadow-sm'
+                : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+            }`}
           >
             Hoje
           </button>
-          <div className="relative">
-            <input 
-              type="date" 
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="pl-4 pr-4 py-2 bg-[var(--primary-color)] text-white font-bold rounded-xl border-none outline-none focus:ring-4 focus:ring-cyan-500/20 cursor-pointer text-sm"
-              style={{ colorScheme: 'dark' }}
-            />
-          </div>
+
+          {/* Input date */}
+          <input
+            type="date"
+            value={selectedDate}
+            onChange={e => setSelectedDate(e.target.value)}
+            className="px-3 py-2 bg-gray-50 border border-gray-200 text-gray-700 font-bold rounded-xl outline-none focus:ring-4 focus:ring-cyan-500/20 cursor-pointer text-sm"
+          />
+
+          {/* Seta direita */}
+          <button
+            onClick={() => navigateDay(1)}
+            className="w-9 h-9 flex items-center justify-center rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-600 transition-colors"
+            title="Próximo dia"
+          >
+            <ChevronRight size={18} />
+          </button>
         </div>
       </div>
 
-      {/* Cards de Resumo */}
+      {/* ── Cards ── */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex items-center justify-between group hover:border-[var(--primary-color)] transition-colors">
           <div>
@@ -147,122 +229,159 @@ export const Inicio: React.FC<InicioProps> = ({ user, onNavigateToPatient }) => 
         </div>
       </div>
 
-      {/* Main Content Area */}
+      {/* ── Main Content ── */}
       <div className="flex flex-col xl:flex-row gap-6">
-        
-        {/* Timeline (Lista vertical de atendimentos) */}
-        <div className="flex-1 bg-white border border-gray-100 rounded-3xl shadow-sm p-6 overflow-hidden flex flex-col">
+
+        {/* Timeline */}
+        <div className="flex-1 bg-white border border-gray-100 rounded-3xl shadow-sm p-6 flex flex-col">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
             <h2 className="text-lg font-black text-slate-800 flex items-center gap-2">
               <Clock size={20} className="text-[var(--primary-color)]" /> Agendamentos do Dia
             </h2>
-            
-            {/* Abas de filtro */}
+
+            {/* Filtros */}
             <div className="flex bg-gray-50 p-1 rounded-xl w-full sm:w-auto overflow-x-auto scrollbar-hide">
-              <button 
-                onClick={() => setFilterStatus('TODOS')}
-                className={`px-4 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${filterStatus === 'TODOS' ? 'bg-white text-[var(--primary-color)] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-              >
-                Todos
-              </button>
-              <button 
-                onClick={() => setFilterStatus(AppointmentStatus.PENDENTE)}
-                className={`px-4 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${filterStatus === AppointmentStatus.PENDENTE ? 'bg-white text-[var(--primary-color)] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-              >
-                Pendentes
-              </button>
-              <button 
-                onClick={() => setFilterStatus(AppointmentStatus.CONFIRMADO)}
-                className={`px-4 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${filterStatus === AppointmentStatus.CONFIRMADO ? 'bg-white text-[var(--primary-color)] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-              >
-                Confirmados
-              </button>
-              <button 
-                onClick={() => setFilterStatus(AppointmentStatus.CANCELADO)}
-                className={`px-4 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${filterStatus === AppointmentStatus.CANCELADO ? 'bg-white text-[var(--primary-color)] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-              >
-                Cancelados
-              </button>
+              {(['TODOS', 'PENDENTE', 'CONFIRMADO', 'CANCELADO'] as const).map(s => (
+                <button
+                  key={s}
+                  onClick={() => setFilterStatus(s === 'TODOS' ? 'TODOS' : AppointmentStatus[s as keyof typeof AppointmentStatus])}
+                  className={`px-4 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${
+                    filterStatus === (s === 'TODOS' ? 'TODOS' : AppointmentStatus[s as keyof typeof AppointmentStatus])
+                      ? 'bg-white text-[var(--primary-color)] shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  {s === 'TODOS' ? 'Todos' : s === 'PENDENTE' ? 'Pendentes' : s === 'CONFIRMADO' ? 'Confirmados' : 'Cancelados'}
+                </button>
+              ))}
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto pr-2 pb-2 space-y-3">
-            {filteredAppointments.length > 0 ? (
-              filteredAppointments.map(app => {
-                const patName = app.patientId ? getPatientName(app.patientId) : (app.tempGuestName || 'Convidado');
-                const isPendente = app.status === AppointmentStatus.PENDENTE || app.status === AppointmentStatus.AGENDADO;
-                const isConfirmado = app.status === AppointmentStatus.CONFIRMADO || app.status === AppointmentStatus.REALIZADO;
-                const isCancelado = app.status === AppointmentStatus.CANCELADO;
+          <div className="flex-1 space-y-3 overflow-y-auto max-h-[480px] pr-1">
+            {filteredAppointments.length > 0 ? filteredAppointments.map((app: any) => {
+              const patName = app.patientId ? getPatientName(app.patientId) : (app.tempGuestName || 'Convidado');
+              const isPendente = app.status === AppointmentStatus.PENDENTE || app.status === AppointmentStatus.AGENDADO;
+              const isConfirmado = app.status === AppointmentStatus.CONFIRMADO || app.status === AppointmentStatus.REALIZADO;
+              const isCancelado = app.status === AppointmentStatus.CANCELADO;
+              const isLoading = updatingId === app.id;
 
-                let statusBadgeColor = 'bg-slate-100 text-slate-600';
-                if (isPendente) statusBadgeColor = 'bg-amber-100 text-amber-700';
-                if (isConfirmado) statusBadgeColor = 'bg-emerald-100 text-emerald-700';
-                if (isCancelado) statusBadgeColor = 'bg-red-100 text-red-700';
+              let barColor = 'bg-slate-300';
+              let badgeClass = 'bg-slate-100 text-slate-600';
+              if (isPendente) { barColor = 'bg-amber-400'; badgeClass = 'bg-amber-100 text-amber-700'; }
+              if (isConfirmado) { barColor = 'bg-emerald-400'; badgeClass = 'bg-emerald-100 text-emerald-700'; }
+              if (isCancelado) { barColor = 'bg-red-400'; badgeClass = 'bg-red-100 text-red-700'; }
 
-                return (
-                  <div key={app.id} className="group relative flex items-center gap-4 bg-gray-50/50 hover:bg-gray-50 border border-gray-100 p-4 rounded-2xl transition-all">
-                    {/* Linha indicadora lateral */}
-                    <div className={`absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-10 rounded-r-full
-                      ${isPendente ? 'bg-amber-400' : isConfirmado ? 'bg-emerald-400' : isCancelado ? 'bg-red-400' : 'bg-slate-300'}`} 
-                    />
-                    
-                    <div className="pl-2 w-20 shrink-0">
-                      <p className="text-sm font-black text-slate-800">{app.time}</p>
-                      <p className="text-[10px] font-bold text-slate-400">{app.duration} min</p>
-                    </div>
+              return (
+                <div key={app.id} className="group relative flex items-center gap-3 bg-gray-50/50 hover:bg-gray-50 border border-gray-100 p-4 rounded-2xl transition-all">
+                  {/* Barra lateral de status */}
+                  <div className={`absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-10 rounded-r-full ${barColor}`} />
 
-                    <div className="flex-1 min-w-0">
-                      <div 
-                        className={`flex items-center gap-2 ${app.patientId ? 'cursor-pointer hover:underline decoration-slate-300 underline-offset-2' : ''}`}
-                        onClick={() => app.patientId && onNavigateToPatient && onNavigateToPatient(app.patientId)}
-                      >
-                        <p className="text-sm font-bold text-slate-800 truncate">{patName}</p>
-                        {app.patientId && <ChevronRight size={14} className="text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />}
-                      </div>
-                      <p className="text-xs font-medium text-slate-500 truncate mt-0.5">{app.serviceName || 'Serviço'}</p>
-                    </div>
-
-                    <div className="shrink-0">
-                       <span className={`px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded-lg ${statusBadgeColor}`}>
-                         {app.status}
-                       </span>
-                    </div>
+                  {/* Horário */}
+                  <div className="pl-2 w-16 shrink-0">
+                    <p className="text-sm font-black text-slate-800">{app.time}</p>
+                    <p className="text-[10px] font-bold text-slate-400">{app.duration} min</p>
                   </div>
-                )
-              })
-            ) : (
+
+                  {/* Dados do paciente */}
+                  <div className="flex-1 min-w-0">
+                    <div
+                      className={`flex items-center gap-1.5 ${app.patientId ? 'cursor-pointer' : ''}`}
+                      onClick={() => app.patientId && onNavigateToPatient && onNavigateToPatient(app.patientId)}
+                    >
+                      <p className="text-sm font-bold text-slate-800 truncate hover:underline decoration-slate-300 underline-offset-2">{patName}</p>
+                      {app.patientId && <ChevronRight size={13} className="text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />}
+                    </div>
+                    <p className="text-xs font-medium text-slate-500 truncate mt-0.5">{app.serviceName || 'Serviço'}</p>
+                  </div>
+
+                  {/* Status badge */}
+                  <span className={`px-2.5 py-1 text-[10px] font-black uppercase tracking-wider rounded-lg shrink-0 ${badgeClass}`}>
+                    {app.status}
+                  </span>
+
+                  {/* Botões de ação */}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {isLoading ? (
+                      <Loader2 size={16} className="animate-spin text-slate-400" />
+                    ) : (
+                      <>
+                        {/* Confirmar — só aparece se não estiver confirmado/realizado */}
+                        {!isConfirmado && !isCancelado && (
+                          <button
+                            onClick={() => handleUpdateStatus(app.id, 'CONFIRMADO')}
+                            title="Confirmar agendamento"
+                            className="w-8 h-8 flex items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 hover:bg-emerald-100 hover:scale-110 transition-all"
+                          >
+                            <CheckCircle size={15} />
+                          </button>
+                        )}
+                        {/* Cancelar — só aparece se não estiver cancelado */}
+                        {!isCancelado && (
+                          <button
+                            onClick={() => handleUpdateStatus(app.id, 'CANCELADO')}
+                            title="Cancelar agendamento"
+                            className="w-8 h-8 flex items-center justify-center rounded-xl bg-red-50 text-red-500 hover:bg-red-100 hover:scale-110 transition-all"
+                          >
+                            <XCircle size={15} />
+                          </button>
+                        )}
+                        {/* Reativar — só aparece se estiver cancelado */}
+                        {isCancelado && (
+                          <button
+                            onClick={() => handleUpdateStatus(app.id, 'AGENDADO')}
+                            title="Reativar agendamento"
+                            className="w-8 h-8 flex items-center justify-center rounded-xl bg-amber-50 text-amber-500 hover:bg-amber-100 hover:scale-110 transition-all"
+                          >
+                            <Clock size={15} />
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            }) : (
               <div className="h-40 flex flex-col items-center justify-center text-slate-400">
-                 <AlertCircle size={32} className="mb-2 opacity-50" />
-                 <p className="text-sm font-bold">Nenhum agendamento encontrado.</p>
-                 <p className="text-xs font-medium">Não há registros para este filtro hoje.</p>
+                <AlertCircle size={32} className="mb-2 opacity-50" />
+                <p className="text-sm font-bold">Nenhum agendamento encontrado.</p>
+                <p className="text-xs font-medium">Não há registros para este filtro nesta data.</p>
               </div>
             )}
           </div>
         </div>
 
-        {/* Aniversariantes do Dia */}
+        {/* ── Aniversariantes ── */}
         <div className="xl:w-80 flex flex-col gap-6">
-          <div className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-3xl p-6 shadow-lg shadow-indigo-500/20 text-white relative overflow-hidden">
-            <div className="absolute -top-6 -right-6 text-white/10">
-              <Cake size={120} />
+          <div
+            className="rounded-3xl p-6 shadow-lg relative overflow-hidden"
+            style={{ background: 'linear-gradient(135deg, #7c3aed 0%, #4f46e5 60%, #2563eb 100%)' }}
+          >
+            {/* Ícone de fundo decorativo */}
+            <div className="absolute -top-4 -right-4 opacity-10">
+              <Cake size={110} color="white" />
             </div>
-            
-            <h3 className="text-lg font-black flex items-center gap-2 relative z-10 mb-4">
-              <Cake size={20} /> Aniversariantes
+
+            <h3 className="text-base font-black flex items-center gap-2 mb-4" style={{ color: 'white' }}>
+              <Cake size={20} color="white" /> Aniversariantes
             </h3>
 
             <div className="space-y-3 relative z-10">
               {birthdayPatients.length > 0 ? (
-                birthdayPatients.map(p => (
-                  <div key={p.id} className="bg-white/10 backdrop-blur-sm border border-white/20 p-3 rounded-2xl flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-bold truncate pr-3">{p.name || p.full_name}</p>
-                    </div>
+                birthdayPatients.map((p: any) => (
+                  <div
+                    key={p.id}
+                    className="p-3 rounded-2xl flex items-center justify-between"
+                    style={{ backgroundColor: 'rgba(255,255,255,0.18)', border: '1px solid rgba(255,255,255,0.3)' }}
+                  >
+                    <p className="text-sm font-bold truncate pr-3" style={{ color: 'white' }}>
+                      🎂 {p.name || p.full_name}
+                    </p>
                     {p.phone && (
-                      <button 
+                      <button
                         onClick={() => openWhatsApp(p.id)}
-                        className="w-8 h-8 rounded-full bg-white text-indigo-600 flex items-center justify-center shrink-0 hover:scale-110 transition-transform shadow-sm"
                         title="Enviar parabéns pelo WhatsApp"
+                        className="w-8 h-8 rounded-full bg-white flex items-center justify-center shrink-0 hover:scale-110 transition-transform shadow-sm"
+                        style={{ color: '#4f46e5' }}
                       >
                         <MessageCircle size={14} />
                       </button>
@@ -270,8 +389,16 @@ export const Inicio: React.FC<InicioProps> = ({ user, onNavigateToPatient }) => 
                   </div>
                 ))
               ) : (
-                <div className="bg-white/10 backdrop-blur-sm border border-white/20 p-4 rounded-2xl text-center">
-                   <p className="text-sm font-medium">Nenhum aniversariante nesta data. 🥳</p>
+                <div
+                  className="p-4 rounded-2xl text-center"
+                  style={{ backgroundColor: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.25)' }}
+                >
+                  <p className="text-sm font-semibold" style={{ color: 'white' }}>
+                    Nenhum aniversariante nesta data 🥳
+                  </p>
+                  <p className="text-xs mt-1" style={{ color: 'rgba(255,255,255,0.75)' }}>
+                    Navegue para outra data para verificar.
+                  </p>
                 </div>
               )}
             </div>
