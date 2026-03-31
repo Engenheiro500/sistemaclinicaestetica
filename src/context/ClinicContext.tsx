@@ -42,8 +42,8 @@ export const ClinicProvider: React.FC<ClinicProviderProps> = ({ children, initia
   }, [settings.primary_color]);
 
   const hasPermission = useCallback((tab: string): boolean => {
-    // 'perfil' e 'inicio' são acessíveis para todos os cargos
-    if (tab === 'perfil' || tab === 'inicio') return true;
+    // 'perfil' é acessível para todos os cargos. Admin sempre tem acesso total.
+    if (tab === 'perfil') return true;
 
     // Admin always has full access
     if (userRole === UserRole.ADMIN) return true;

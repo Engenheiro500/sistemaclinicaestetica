@@ -36,6 +36,7 @@ const Toggle: React.FC<{
 
 // ─── Permission Panel ──────────────────────────────────────────────────────
 const PAGE_META: { key: keyof RolePermissions; label: string; desc: string }[] = [
+  { key: 'inicio', label: 'Início (Home Administrativa)', desc: 'Dashboard diário com agenda e aniversariantes' },
   { key: 'home', label: 'Visão Geral (Dashboard)', desc: 'Página inicial com KPIs e gráficos' },
   { key: 'crm', label: 'CRM / Funil de Vendas', desc: 'Kanban de leads e oportunidades' },
   { key: 'agenda', label: 'Agenda', desc: 'Visualizar e gerenciar agendamentos' },

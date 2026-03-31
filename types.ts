@@ -196,6 +196,7 @@ export interface SlotDisponivel {
   created_at?: string;
 }
 export interface RolePermissions {
+  inicio: boolean;
   home: boolean;
   crm: boolean;
   agenda: boolean;
@@ -218,6 +219,7 @@ export interface ClinicSettings {
 }
 
 export const DEFAULT_RECEPTIONIST_PERMISSIONS: RolePermissions = {
+  inicio: true,
   home: true,
   crm: true,
   agenda: true,
@@ -229,6 +231,7 @@ export const DEFAULT_RECEPTIONIST_PERMISSIONS: RolePermissions = {
 };
 
 export const DEFAULT_PROFESSIONAL_PERMISSIONS: RolePermissions = {
+  inicio: true,
   home: true,
   crm: false,
   agenda: true,
