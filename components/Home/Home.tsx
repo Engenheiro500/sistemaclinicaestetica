@@ -42,7 +42,6 @@ export const Home = ({ onNavigateToPatient }: { onNavigateToPatient?: (id: strin
     const { appointments } = useAppointments();
     const { settings: scheduleSettings, blocks } = useScheduleSettings();
 
-    // Derived Data Based on Period
     const filteredLeads = useMemo(() => {
         const now = new Date();
         
@@ -53,23 +52,30 @@ export const Home = ({ onNavigateToPatient }: { onNavigateToPatient?: (id: strin
 
         if (period === 'HOJE') {
             const todayStr = format(now, 'yyyy-MM-dd');
-            // 1. Correção da Contagem por Data: filtrar exatamente por `date`
-            return validAppointments.filter(lead => lead.date === todayStr);
+            // 1. Filtrar por `created_at` (quando o agendamento foi criado)
+            return validAppointments.filter(lead => {
+                if (!lead.created_at) return false;
+                return format(parseISO(lead.created_at), 'yyyy-MM-dd') === todayStr;
+            });
         }
         
         if (period === 'CUSTOM') {
             if (!customDate) return validAppointments;
-            // 1. Correção da Contagem por Data: filtrar exatamente por `date`
-            return validAppointments.filter(lead => lead.date === customDate);
+            // 1. Filtrar por `created_at` (quando o agendamento foi criado)
+            return validAppointments.filter(lead => {
+                if (!lead.created_at) return false;
+                return format(parseISO(lead.created_at), 'yyyy-MM-dd') === customDate;
+            });
         }
         
         const daysToSubtract = PERIODS[period];
-        const startDate = subDays(now, daysToSubtract);
+        const startDate = startOfDay(subDays(now, daysToSubtract));
 
         return validAppointments.filter(lead => {
-            if (!lead.date) return false;
+            if (!lead.created_at) return false;
             // Includes the start date implicitly or explicitly
-            return isAfter(parseISO(lead.date), startDate) || lead.date === format(startDate, 'yyyy-MM-dd');
+            const createdDateStr = format(parseISO(lead.created_at), 'yyyy-MM-dd');
+            return isAfter(parseISO(lead.created_at), startDate) || createdDateStr === format(startDate, 'yyyy-MM-dd');
         });
     }, [period, customDate, appointments]);
 
@@ -184,19 +190,20 @@ export const Home = ({ onNavigateToPatient }: { onNavigateToPatient?: (id: strin
         const daysMap = new Map<string, number>();
 
         if (period === 'HOJE') {
-            const hours = ['08:00', '10:00', '12:00', '14:00', '16:00', '18:00', '20:00'];
+            const hours = ['08:00', '10:00', '12:00', '14:00', '16:00', '18:00', '20:00', '22:00'];
             hours.forEach(h => daysMap.set(h, 0));
         }
 
         filteredLeads.forEach(lead => {
-            if (!lead.date) return;
+            if (!lead.created_at) return;
             
-            let dateStr = lead.date;
+            let dateStr = lead.created_at;
             if (period === 'HOJE') {
-               const rawDateTime = lead.time ? `${lead.date}T${lead.time}` : `${lead.date}T00:00:00`;
-               dateStr = format(new Date(rawDateTime), 'HH:00');
+               const createdDate = parseISO(lead.created_at);
+               // Pega a hora exata da criação
+               dateStr = format(createdDate, 'HH:00');
             } else {
-               dateStr = format(parseISO(lead.date), 'dd/MM');
+               dateStr = format(parseISO(lead.created_at), 'dd/MM');
             }
             
             daysMap.set(dateStr, (daysMap.get(dateStr) || 0) + 1);
