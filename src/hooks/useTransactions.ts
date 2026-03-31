@@ -125,5 +125,19 @@ export function useTransactions(options?: { dateFrom?: string; dateTo?: string; 
         return data;
     };
 
-    return { transactions, addTransaction, fetchTransactions, loading };
+    const deleteTransaction = async (id: string) => {
+        // Optimistic UI — remove imediatamente
+        setTransactions(prev => prev.filter(t => t.id !== id));
+        transactionsCache.delete(cacheKey);
+
+        const { error } = await supabase.from('transactions').delete().eq('id', id);
+        if (error) {
+            console.error('Erro ao deletar transação:', error);
+            // Reverte
+            fetchTransactions();
+            throw error;
+        }
+    };
+
+    return { transactions, addTransaction, deleteTransaction, fetchTransactions, loading };
 }

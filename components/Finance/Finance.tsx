@@ -104,6 +104,7 @@ export const Finance: React.FC<FinanceProps> = ({ user }) => {
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [cancelTx, setCancelTx] = useState<{ id: string; description: string; isAppointment: boolean } | null>(null);
 
   const [period, setPeriod] = useState<PeriodKey>('30D');
   const [customDate, setCustomDate] = useState<string>('');
@@ -146,7 +147,7 @@ export const Finance: React.FC<FinanceProps> = ({ user }) => {
   }, [period, customDate]);
 
   // Supabase Transactions (Extrato de Despesas e Receitas Manuais)
-  const { transactions: manualTransactions, addTransaction: saveTransaction, loading: loadingTrans } = useTransactions({ dateFrom, dateTo });
+  const { transactions: manualTransactions, addTransaction: saveTransaction, deleteTransaction, loading: loadingTrans } = useTransactions({ dateFrom, dateTo });
 
   const loading = loadingApps || loadingTrans;
 
@@ -224,15 +225,19 @@ export const Finance: React.FC<FinanceProps> = ({ user }) => {
       });
     });
 
-    // Ordena do mais recente para o mais antigo (dd/mm/yyyy → yyyy-mm-dd para comparação)
+    // Ordena do mais recente para o mais antigo
+    // Prioriza created_at quando disponível (mais preciso), caso contrário usa date
     return filtered.sort((a, b) => {
-      const toComp = (d: string) => {
-        // Suporta dd/mm/yyyy e yyyy-mm-dd
+      const toComp = (t: any) => {
+        // created_at é ISO (yyyy-mm-ddTHH:MM:SS) — mais preciso
+        if (t.created_at) return t.created_at;
+        // date pode ser dd/mm/yyyy ou yyyy-mm-dd
+        const d: string = t.date || '';
         if (!d) return '';
-        if (d.includes('/')) return d.split('/').reverse().join('');
-        return d.replace(/-/g, '');
+        if (d.includes('/')) return d.split('/').reverse().join('-');
+        return d;
       };
-      return toComp(b.date).localeCompare(toComp(a.date));
+      return toComp(b).localeCompare(toComp(a));
     });
   }, [appointments, manualTransactions, activePaymentFilters]);
 
@@ -371,6 +376,26 @@ export const Finance: React.FC<FinanceProps> = ({ user }) => {
       await saveTransaction(tx);
     } catch (err) {
       alert("Erro ao salvar transação. Verifique a conexão.");
+    }
+  };
+
+  // Cancelar transação (manual ou de agendamento)
+  const handleCancelTransaction = async () => {
+    if (!cancelTx) return;
+    try {
+      if (cancelTx.isAppointment) {
+        // É um agendamento: altera o status para CANCELADO
+        await supabase.from('appointments').update({ status: 'CANCELADO' }).eq('id', cancelTx.id);
+        setAppointments(prev => prev.map(a => a.id === cancelTx.id ? { ...a, status: 'CANCELADO' } : a));
+      } else {
+        // É uma transação manual
+        await deleteTransaction(cancelTx.id);
+      }
+    } catch (err) {
+      console.error('Erro ao cancelar:', err);
+      alert('Erro ao cancelar. Tente novamente.');
+    } finally {
+      setCancelTx(null);
     }
   };
 
@@ -875,6 +900,7 @@ export const Finance: React.FC<FinanceProps> = ({ user }) => {
                     <th className="pb-4 font-black">Data</th>
                     <th className="pb-4 font-black">Método</th>
                     <th className="pb-4 font-black text-right">Valor</th>
+                    <th className="pb-4 font-black text-right">Ação</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
@@ -905,6 +931,20 @@ export const Finance: React.FC<FinanceProps> = ({ user }) => {
                       </td>
                       <td className={`py-4 text-right font-black text-sm ${tx.type === 'RECEITA' ? 'text-emerald-500' : 'text-rose-500'}`}>
                         {tx.type === 'RECEITA' ? '+' : '-'} R$ {tx.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      </td>
+                      <td className="py-4 text-right">
+                        <button
+                          onClick={() => setCancelTx({
+                            id: tx.id,
+                            description: tx.description,
+                            // Se a descrição começa com 'Atendimento:' é um agendamento
+                            isAppointment: tx.description?.startsWith('Atendimento:') ?? false,
+                          })}
+                          title="Cancelar transação"
+                          className="opacity-0 group-hover:opacity-100 p-1.5 rounded-xl text-rose-400 hover:bg-rose-50 hover:text-rose-600 transition-all"
+                        >
+                          <X size={15} />
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -947,6 +987,48 @@ export const Finance: React.FC<FinanceProps> = ({ user }) => {
           </div>
         </div>
       </div>
+
+      {/* MODAL CANCELAR TRANSAÇÃO */}
+      {cancelTx && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-300 text-left">
+          <div className="bg-white w-full max-w-[400px] rounded-[32px] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300">
+            <div className="p-6 flex items-center justify-between border-b border-gray-50">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-rose-50 text-rose-500 rounded-2xl flex items-center justify-center">
+                  <X size={22} strokeWidth={2.5} />
+                </div>
+                <h3 className="font-bold text-gray-800 text-lg">Cancelar {cancelTx.isAppointment ? 'Agendamento' : 'Transação'}</h3>
+              </div>
+              <button onClick={() => setCancelTx(null)} className="text-gray-400 hover:text-gray-600 transition-all"><X size={20} /></button>
+            </div>
+            <div className="p-6 space-y-5">
+              <p className="text-sm font-medium text-gray-500">
+                Deseja realmente cancelar {cancelTx.isAppointment ? 'este agendamento' : 'esta transação'}? Esta ação não pode ser desfeita.
+              </p>
+              <div className="bg-rose-50 rounded-2xl p-4 border border-rose-100">
+                <p className="text-sm font-bold text-rose-800 truncate">{cancelTx.description}</p>
+                <p className="text-xs font-medium text-rose-400 mt-1">
+                  {cancelTx.isAppointment ? 'O status do agendamento será alterado para CANCELADO.' : 'A transação será removida do extrato.'}
+                </p>
+              </div>
+              <div className="flex gap-3 pt-1">
+                <button
+                  onClick={() => setCancelTx(null)}
+                  className="flex-1 py-3 rounded-2xl border border-gray-200 text-gray-500 font-bold text-sm hover:bg-gray-50 transition-colors"
+                >
+                  Manter
+                </button>
+                <button
+                  onClick={handleCancelTransaction}
+                  className="flex-1 py-3 rounded-2xl bg-rose-500 hover:bg-rose-600 text-white font-black text-sm transition-all shadow-lg shadow-rose-100 flex items-center justify-center gap-2"
+                >
+                  <X size={16} /> Sim, Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODAL CONFIRMAR PAGAMENTO */}
       {isConfirmModalOpen && selectedPayment && (
