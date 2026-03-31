@@ -90,7 +90,13 @@ export const Home = ({ onNavigateToPatient }: { onNavigateToPatient?: (id: strin
             const dayOfWeek = compareDate.getDay(); // 0 (Sunday) to 6 (Saturday)
             const hour = compareDate.getHours();
             const minute = compareDate.getMinutes();
-            const timeNum = hour + (minute / 60);
+            const startNum = hour + (minute / 60);
+            
+            // Considera a duração para calcular o fim do agendamento (default 30 min se não houver)
+            const durationMin = (lead.duration && typeof lead.duration === 'number' && lead.duration > 0) ? lead.duration : 30;
+            const durationHours = durationMin / 60;
+            const endNum = startNum + durationHours;
+            
             const dateStr = lead.date;
 
             // --- Define 'Horário Comercial' Rules ---
@@ -113,18 +119,19 @@ export const Home = ({ onNavigateToPatient }: { onNavigateToPatient?: (id: strin
                 const startLunch = getDecimalTime(daySetting.almoco_inicio || '');
                 const endLunch = getDecimalTime(daySetting.almoco_fim || '');
 
-                // 2. Is time between hora_inicio and hora_fim?
+                // 2. Is the appointment entirely within startWork and endWork?
                 if (startWork !== null && endWork !== null) {
-                    if (timeNum < startWork || timeNum >= endWork) {
+                    // Consider decimal precision issues
+                    if (startNum < (startWork - 0.001) || endNum > (endWork + 0.001)) {
                         isComercial = false;
                     }
                 } else {
                     isComercial = false; // if no hours defined, not commercial
                 }
 
-                // 3. Is time inside lunch break? (if currently still commercial)
+                // 3. Does it overlap with the lunch break?
                 if (isComercial && startLunch !== null && endLunch !== null) {
-                    if (timeNum >= startLunch && timeNum < endLunch) {
+                    if (startNum < endLunch && endNum > startLunch) {
                         isComercial = false;
                     }
                 }
@@ -149,7 +156,8 @@ export const Home = ({ onNavigateToPatient }: { onNavigateToPatient?: (id: strin
                     const bEnd = blockEnd();
 
                     if (bStart !== null && bEnd !== null) {
-                        if (timeNum >= bStart && timeNum < bEnd) {
+                        // Check overlap
+                        if (startNum < bEnd && endNum > bStart) {
                             isComercial = false;
                             break;
                         }
