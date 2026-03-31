@@ -253,10 +253,31 @@ export const Home = ({ onNavigateToPatient }: { onNavigateToPatient?: (id: strin
 
     // Upcoming Appointments Table
     const upcomingAppointments = useMemo(() => {
-        const now = startOfDay(new Date());
+        const today = startOfDay(new Date());
+        const nowTime = new Date().getTime();
+        
         return appointments
-            .filter(lead => lead.date && isAfter(parseISO(lead.date), now))
-            .sort((a, b) => new Date(`${a.date}T${a.time}`).getTime() - new Date(`${b.date}T${b.time}`).getTime())
+            .filter(lead => {
+                if (!lead.date) return false;
+                
+                // Mostrar a partir de hoje
+                const dateMatches = parseISO(lead.date).getTime() >= today.getTime();
+                
+                // Se for hoje, garantir que o horário (time) ainda não passou
+                if (parseISO(lead.date).getTime() === today.getTime() && lead.time) {
+                     const exactApptTime = new Date(`${lead.date}T${lead.time}`).getTime();
+                     if (exactApptTime < nowTime) {
+                         return false; // Já passou no dia de hoje
+                     }
+                }
+                
+                return dateMatches;
+            })
+            .sort((a, b) => {
+                const timeA = new Date(`${a.date}T${a.time || '00:00:00'}`).getTime();
+                const timeB = new Date(`${b.date}T${b.time || '00:00:00'}`).getTime();
+                return timeA - timeB;
+            })
             .slice(0, 5); // Limit to 5 for the dashboard
     }, [appointments]);
 
