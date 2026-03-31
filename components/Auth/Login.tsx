@@ -131,7 +131,7 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
           name: profileData?.full_name || meta?.name || data.user.email?.split('@')[0] || 'Usuário',
           email: data.user.email || email,
           role: resolvedRole,
-          clinicId: 'clinic-123',
+          clinicId: undefined as any,
           avatar: profileData?.avatar_url || meta?.avatar_url || '',
           ...(metaRole ? { metaRole } as any : {}),
         } as any;

@@ -158,7 +158,7 @@ const App: React.FC = () => {
             name: resolvedName,
             email: session.user.email || '',
             role: role,
-            clinicId: 'clinic-123',
+            clinicId: undefined as any,
             avatar: session.user.user_metadata?.avatar_url || '',
             metaRole: metaRole
           } as any;
@@ -203,7 +203,7 @@ const App: React.FC = () => {
             name: session.user.user_metadata?.name || 'Usuário',
             email: session.user.email || '',
             role: metaRole === 'receptionist' ? UserRole.RECEPTIONIST : metaRole === 'professional' ? UserRole.PROFESSIONAL : UserRole.ADMIN,
-            clinicId: 'clinic-123',
+            clinicId: undefined as any,
             avatar: session.user.user_metadata?.avatar_url || '',
             metaRole: metaRole
           } as any;
