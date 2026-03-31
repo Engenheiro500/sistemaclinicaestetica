@@ -449,7 +449,7 @@ export const Agenda: React.FC<AgendaProps> = ({ user, onNavigateToPatient, onPat
         status: newAppointment.id ? (selectedAppointment?.status || 'PENDENTE') : 'PENDENTE',
         physioId: professionalSelected?.id || newAppointment.physioId || user.id,
         professional_id: professionalSelected?.id || newAppointment.physioId || user.id,
-        clinicId: user.clinicId,
+        clinicId: user.clinicId === 'clinic-123' ? null : user.clinicId,
         serviceName: service?.name ? service.name : (newAppointment.id ? selectedAppointment?.serviceName : undefined),
         value: newAppointment.value,
         paymentMethod: newAppointment.paymentMethod,
