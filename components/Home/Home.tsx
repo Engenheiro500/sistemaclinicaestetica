@@ -52,11 +52,29 @@ export const Home = ({ onNavigateToPatient }: { onNavigateToPatient?: (id: strin
 
         if (period === 'HOJE') {
             const todayStr = format(now, 'yyyy-MM-dd');
+            const startOfTodayDt = startOfDay(now);
+            const _24hAgo = subDays(now, 1);
+            
             // 1. Filtrar por `created_at` (quando o agendamento foi criado)
-            return validAppointments.filter(lead => {
+            const leadsToday = validAppointments.filter(lead => {
                 if (!lead.created_at) return false;
-                return format(parseISO(lead.created_at), 'yyyy-MM-dd') === todayStr;
+                const leadDate = parseISO(lead.created_at);
+                return format(leadDate, 'yyyy-MM-dd') === todayStr;
             });
+
+            console.log('Filtro de Data (Hoje):', startOfTodayDt, '->', now, '| Leads encontrados (Fuso Local):', leadsToday.length);
+
+            // 1.5. Teste de Intervalo: Fallback para as últimas 24h literais se hoje falhar
+            if (leadsToday.length === 0) {
+                 console.log('Nenhum lead encontrado hoje, aplicando fallback para criados nas últimas 24h (UTC issues workaround)... de', _24hAgo, 'até', now);
+                 return validAppointments.filter(lead => {
+                     if (!lead.created_at) return false;
+                     const leadDate = parseISO(lead.created_at);
+                     return isAfter(leadDate, _24hAgo);
+                 });
+            }
+            
+            return leadsToday;
         }
         
         if (period === 'CUSTOM') {

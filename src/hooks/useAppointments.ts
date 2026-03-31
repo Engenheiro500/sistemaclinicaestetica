@@ -90,7 +90,7 @@ function mapRow(row: any, usersMap: Map<string, { name: string; role: string }>)
         physioId: actualPhysioId,
         physio: physioInfo?.name || (actualPhysioId ? `Profissional (${actualPhysioId.slice(0, 6)})` : 'A Definir'),
         bgColor: getBgColor(row.status),
-        created_at: row.created_at,
+        created_at: row.created_at || row.createdAt,
         created_by: row.created_by,
         creatorName: creatorInfo?.name || (row.created_by ? null : 'Administrador (Sistema)'),
         creatorRole: creatorInfo?.role || (row.created_by ? null : 'Admin'),
