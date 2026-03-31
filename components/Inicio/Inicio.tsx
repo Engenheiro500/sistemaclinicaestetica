@@ -2,7 +2,7 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { User, AppointmentStatus } from '../../types';
 import {
   Calendar, Clock, CheckCircle, XCircle, MessageCircle,
-  AlertCircle, ChevronRight, Cake, ChevronLeft, Loader2
+  AlertCircle, ChevronRight, Cake, ChevronLeft, Loader2, UserPlus
 } from 'lucide-react';
 import { useAppointments } from '../../src/hooks/useAppointments';
 import { usePatients } from '../../src/hooks/usePatients';
@@ -42,6 +42,12 @@ export const Inicio: React.FC<InicioProps> = ({ user, onNavigateToPatient }) => 
   const [filterStatus, setFilterStatus] = useState<'TODOS' | AppointmentStatus>('TODOS');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
+  // ── Modal de cadastro rápido ────────────────────────────────────────────
+  const { setPatients } = usePatients() as any;
+  const [guestToRegister, setGuestToRegister] = useState<any | null>(null);
+  const [registerForm, setRegisterForm] = useState({ name: '', phone: '', cpf: '' });
+  const [registering, setRegistering] = useState(false);
+
   // ── Navegação de data ─────────────────────────────────────────────────────
   const navigateDay = useCallback((dir: -1 | 1) => {
     setSelectedDate(prev => shiftDate(prev, dir));
@@ -70,6 +76,56 @@ export const Inicio: React.FC<InicioProps> = ({ user, onNavigateToPatient }) => 
       setUpdatingId(null);
     }
   }, [setAppointments]);
+
+  // ── Cadastrar convidado e vincular ao agendamento ────────────────────────
+  const openRegisterModal = useCallback((app: any) => {
+    setRegisterForm({ name: app.tempGuestName || '', phone: app.tempGuestPhone || '', cpf: '' });
+    setGuestToRegister(app);
+  }, []);
+
+  const handleQuickRegister = useCallback(async () => {
+    if (!guestToRegister || !registerForm.name.trim()) return;
+    setRegistering(true);
+    try {
+      const { data: newPatient, error: pErr } = await supabase
+        .from('patients')
+        .insert({
+          name: registerForm.name.trim(),
+          phone: registerForm.phone.trim() || null,
+          cpf: registerForm.cpf.trim() || null,
+          status: 'Ativo',
+          gender: 'Outro',
+          address: '',
+          insurance: '',
+        })
+        .select()
+        .single();
+
+      if (pErr) throw pErr;
+
+      // Vincula o patient_id ao agendamento
+      await supabase
+        .from('appointments')
+        .update({ patient_id: newPatient.id })
+        .eq('id', guestToRegister.id);
+
+      // Atualização local otimista
+      if (setAppointments) {
+        setAppointments((prev: any[]) =>
+          prev.map(a => a.id === guestToRegister.id ? { ...a, patientId: newPatient.id } : a)
+        );
+      }
+      if (setPatients) {
+        setPatients((prev: any[]) => [...prev, { ...newPatient, name: newPatient.name }]);
+      }
+
+      setGuestToRegister(null);
+    } catch (err) {
+      console.error('[Inicio] Erro ao cadastrar convidado:', err);
+    } finally {
+      setRegistering(false);
+    }
+  }, [guestToRegister, registerForm, setAppointments, setPatients]);
 
   // ── Agendamentos ─────────────────────────────────────────────────────────
   const dayAppointments = useMemo(() =>
@@ -131,6 +187,7 @@ export const Inicio: React.FC<InicioProps> = ({ user, onNavigateToPatient }) => 
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
+    <>
     <div className="space-y-6 max-w-7xl mx-auto pb-10 animate-in fade-in duration-500">
 
       {/* ── Header ── */}
@@ -292,6 +349,16 @@ export const Inicio: React.FC<InicioProps> = ({ user, onNavigateToPatient }) => 
                       {app.patientId && <ChevronRight size={13} className="text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />}
                     </div>
                     <p className="text-xs font-medium text-slate-500 truncate mt-0.5">{app.serviceName || 'Serviço'}</p>
+                    {/* Botão cadastrar convidado — aparece só quando sem patientId */}
+                    {!app.patientId && (app.tempGuestName || app.patient) && (
+                      <button
+                        onClick={() => openRegisterModal(app)}
+                        title="Cadastrar este paciente no sistema"
+                        className="mt-1 flex items-center gap-1 text-[10px] font-black text-[var(--primary-color)] hover:underline"
+                      >
+                        <UserPlus size={11} /> Cadastrar paciente
+                      </button>
+                    )}
                   </div>
 
                   {/* Status badge */}
@@ -404,8 +471,77 @@ export const Inicio: React.FC<InicioProps> = ({ user, onNavigateToPatient }) => 
             </div>
           </div>
         </div>
-
       </div>
     </div>
+
+    {/* ── Modal rápido de cadastro ── */}
+    {guestToRegister && (
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setGuestToRegister(null)}>
+        <div className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-md" onClick={e => e.stopPropagation()}>
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 rounded-2xl flex items-center justify-center" style={{ backgroundColor: 'color-mix(in srgb, var(--primary-color) 15%, white)' }}>
+              <UserPlus size={20} style={{ color: 'var(--primary-color)' }} />
+            </div>
+            <div>
+              <h3 className="font-black text-slate-800">Cadastrar Paciente</h3>
+              <p className="text-xs text-slate-400 font-medium">Vinculado ao agendamento de {guestToRegister.time}</p>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs font-black text-slate-600 uppercase tracking-widest block mb-1">Nome Completo *</label>
+              <input
+                type="text"
+                value={registerForm.name}
+                onChange={e => setRegisterForm(f => ({ ...f, name: e.target.value }))}
+                placeholder="Nome do paciente"
+                autoFocus
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold text-slate-700 outline-none focus:ring-4 focus:ring-cyan-500/20"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-black text-slate-600 uppercase tracking-widest block mb-1">Telefone</label>
+              <input
+                type="text"
+                value={registerForm.phone}
+                onChange={e => setRegisterForm(f => ({ ...f, phone: e.target.value }))}
+                placeholder="(00) 00000-0000"
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold text-slate-700 outline-none focus:ring-4 focus:ring-cyan-500/20"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-black text-slate-600 uppercase tracking-widest block mb-1">CPF</label>
+              <input
+                type="text"
+                value={registerForm.cpf}
+                onChange={e => setRegisterForm(f => ({ ...f, cpf: e.target.value }))}
+                placeholder="000.000.000-00"
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold text-slate-700 outline-none focus:ring-4 focus:ring-cyan-500/20"
+              />
+            </div>
+          </div>
+
+          <div className="flex gap-3 mt-6">
+            <button
+              onClick={() => setGuestToRegister(null)}
+              className="flex-1 py-3 rounded-2xl border border-gray-200 text-slate-500 font-bold text-sm hover:bg-gray-50 transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={handleQuickRegister}
+              disabled={registering || !registerForm.name.trim()}
+              className="flex-1 py-3 rounded-2xl font-black text-sm text-white transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+              style={{ backgroundColor: 'var(--primary-color)' }}
+            >
+              {registering ? <Loader2 size={16} className="animate-spin" /> : <UserPlus size={16} />}
+              {registering ? 'Cadastrando...' : 'Cadastrar Paciente'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 };
