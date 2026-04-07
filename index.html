@@ -27,6 +27,72 @@
 }
 </script>
 <link rel="stylesheet" href="/index.css">
+<script>
+  (function() {
+    try {
+      const stored = localStorage.getItem('clinic_settings_cache');
+      let clinicName = 'Sistema';
+      let logoUrl = '';
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed.value && typeof parsed.value === 'string') {
+          const inner = JSON.parse(parsed.value);
+          clinicName = inner.clinic_name || 'Sistema';
+          logoUrl = inner.logo_url || '';
+        } else {
+          clinicName = parsed.clinic_name || 'Sistema';
+          logoUrl = parsed.logo_url || '';
+        }
+      }
+      
+      const manifest = {
+        name: clinicName,
+        short_name: clinicName,
+        start_url: "/",
+        display: "standalone",
+        background_color: "#ffffff",
+        theme_color: "#0891b2",
+        icons: []
+      };
+      
+      if (logoUrl) {
+        manifest.icons.push({ src: logoUrl, sizes: "192x192", type: "image/png", purpose: "any" });
+        manifest.icons.push({ src: logoUrl, sizes: "512x512", type: "image/png", purpose: "any" });
+      } else {
+        manifest.icons.push({ src: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", sizes: "192x192", type: "image/png" });
+      }
+      
+      const stringManifest = JSON.stringify(manifest);
+      const blob = new Blob([stringManifest], { type: 'application/json' });
+      const manifestURL = URL.createObjectURL(blob);
+      
+      const link = document.createElement('link');
+      link.rel = 'manifest';
+      link.id = 'dynamic-manifest';
+      link.href = manifestURL;
+      document.head.appendChild(link);
+      
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').catch((err) => {
+            console.log('SW registration failed: ', err);
+          });
+        });
+      }
+      
+      // Store the install prompt event globally so the app can use it later
+      window.addEventListener('beforeinstallprompt', (e) => {
+        // Prevent Chrome from showing the mini-infobar automatically
+        e.preventDefault();
+        // Stash the event so it can be triggered later.
+        window.deferredPrompt = e;
+      });
+      
+    } catch(e) {
+      console.error('Error generating dynamic manifest', e);
+    }
+  })();
+</script>
 </head>
 <body class="bg-gray-50 text-gray-900">
     <div id="root"></div>

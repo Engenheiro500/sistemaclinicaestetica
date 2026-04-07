@@ -2,7 +2,7 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { User, AppointmentStatus } from '../../types';
 import {
   Calendar, Clock, CheckCircle, XCircle, MessageCircle,
-  AlertCircle, ChevronRight, Cake, ChevronLeft, Loader2, UserPlus
+  AlertCircle, ChevronRight, Cake, ChevronLeft, Loader2, UserPlus, Download
 } from 'lucide-react';
 import { useAppointments } from '../../src/hooks/useAppointments';
 import { usePatients } from '../../src/hooks/usePatients';
@@ -42,6 +42,46 @@ export const Inicio: React.FC<InicioProps> = ({ user, onNavigateToPatient }) => 
   const [selectedDate, setSelectedDate] = useState<string>(todayStr);
   const [filterStatus, setFilterStatus] = useState<'TODOS' | AppointmentStatus>('TODOS');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  
+  const [showInstallBtn, setShowInstallBtn] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+
+  React.useEffect(() => {
+    if ((window as any).deferredPrompt) {
+      setShowInstallBtn(true);
+      setDeferredPrompt((window as any).deferredPrompt);
+    }
+
+    const handleBeforeInstallPrompt = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setShowInstallBtn(true);
+      (window as any).deferredPrompt = e;
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    
+    // Also check if already installed to hide the button
+    if (window.matchMedia('(display-mode: standalone)').matches) {
+       setShowInstallBtn(false);
+    }
+
+    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+  }, []);
+
+  const handleInstallApp = async () => {
+    if (!deferredPrompt) {
+      alert("A instalação não está disponível no momento. Tente abrir o sistema pelo Google Chrome e acesse o menu -> 'Adicionar à Tela Inicial' ou 'Instalar Aplicativo'.");
+      return;
+    }
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setShowInstallBtn(false);
+    }
+    setDeferredPrompt(null);
+    (window as any).deferredPrompt = null;
+  };
   
   const { clinicSettings } = useClinic();
 
@@ -239,8 +279,20 @@ export const Inicio: React.FC<InicioProps> = ({ user, onNavigateToPatient }) => 
           </p>
         </div>
 
-        {/* Navegação de data */}
-        <div className="flex items-center gap-2">
+        {/* Ações e Navegação */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+          {/* Botão de instalar app */}
+          {showInstallBtn && (
+            <button
+              onClick={handleInstallApp}
+              className="flex items-center gap-2 px-4 py-2 bg-[var(--primary-color)] text-white rounded-xl font-bold text-sm hover:brightness-110 active:scale-95 transition-all shadow-md shadow-cyan-500/20"
+            >
+              <Download size={16} /> Instalar Sistema
+            </button>
+          )}
+
+          {/* Navegação de data */}
+          <div className="flex items-center gap-2">
           {/* Seta esquerda */}
           <button
             onClick={() => navigateDay(-1)}
@@ -278,6 +330,7 @@ export const Inicio: React.FC<InicioProps> = ({ user, onNavigateToPatient }) => 
           >
             <ChevronRight size={18} />
           </button>
+        </div>
         </div>
       </div>
 
