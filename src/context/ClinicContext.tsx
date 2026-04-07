@@ -41,14 +41,24 @@ export const ClinicProvider: React.FC<ClinicProviderProps> = ({ children, initia
     }
   }, [settings.primary_color]);
 
-  // Update document title based on clinic name
+  // Update document title and favicon based on clinic settings
   useEffect(() => {
     if (settings && settings.clinic_name) {
       document.title = settings.clinic_name;
     } else {
       document.title = 'GestãoFisio - Gestão de Clínica';
     }
-  }, [settings.clinic_name]);
+
+    if (settings && settings.logo_url) {
+      let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
+      if (!link) {
+        link = document.createElement('link');
+        link.rel = 'icon';
+        document.head.appendChild(link);
+      }
+      link.href = settings.logo_url;
+    }
+  }, [settings.clinic_name, settings.logo_url]);
 
   const hasPermission = useCallback((tab: string): boolean => {
     // 'perfil' é acessível para todos os cargos. Admin sempre tem acesso total.

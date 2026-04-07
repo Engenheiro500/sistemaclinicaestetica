@@ -72,6 +72,16 @@
       link.href = manifestURL;
       document.head.appendChild(link);
       
+      if (logoUrl) {
+        let fav = document.querySelector("link[rel~='icon']");
+        if (!fav) {
+          fav = document.createElement('link');
+          fav.rel = 'icon';
+          document.head.appendChild(fav);
+        }
+        fav.href = logoUrl;
+      }
+      
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
           navigator.serviceWorker.register('/sw.js').catch((err) => {
