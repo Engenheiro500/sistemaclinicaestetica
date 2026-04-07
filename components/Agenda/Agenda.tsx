@@ -18,7 +18,8 @@ import {
   Edit,
   Trash2,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  MessageCircle
 } from 'lucide-react';
 import { AppointmentStatus, User, UserRole } from '../../types';
 import { supabase } from '../../src/lib/supabase';
@@ -27,6 +28,7 @@ import { useServices } from '../../src/hooks/useServices';
 import { usePatients } from '../../src/hooks/usePatients';
 import { useProfessionals } from '../../src/hooks/useProfessionals';
 import { useScheduleSettings } from '../../src/hooks/useScheduleSettings';
+import { useClinic } from '../../src/context/ClinicContext';
 
 interface AgendaProps {
   user: User;
@@ -91,6 +93,44 @@ export const Agenda: React.FC<AgendaProps> = ({ user, onNavigateToPatient, onPat
   const { patients } = usePatients();
   const { professionals } = useProfessionals();
   const { settings, blocks, createBlock, deleteBlock } = useScheduleSettings();
+  const { clinicSettings } = useClinic();
+
+  const handleSendReminderWhatsApp = () => {
+    if (!selectedAppointment) return;
+
+    let phone = '';
+    let name = '';
+
+    if (selectedAppointment.patientId) {
+      const patient = (patients || []).find((p: any) => p.id === selectedAppointment.patientId);
+      if (patient) {
+        phone = patient.phone || '';
+        name = patient.full_name || patient.name || '';
+      }
+    } else if (selectedAppointment.phone) {
+      phone = selectedAppointment.phone;
+      name = selectedAppointment.patient || '';
+    }
+
+    if (!phone) {
+      alert('Paciente não possui telefone cadastrado.');
+      return;
+    }
+
+    const cleanPhone = phone.replace(/\D/g, '');
+    const clinicName = clinicSettings?.clinic_name || 'nossa clínica';
+    
+    // Formata YYYY-MM-DD para DD/MM/YYYY
+    const dateParts = selectedAppointment.date.split('-');
+    const formattedDate = `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}`;
+
+    const textMsg = `Olá ${name}, aqui é da *${clinicName}*, vim lembrar que você tem um agendamento para ${formattedDate} às ${selectedAppointment.time}. Tudo certo para hoje?`;
+
+    window.open(
+      `https://wa.me/55${cleanPhone}?text=${encodeURIComponent(textMsg)}`,
+      '_blank'
+    );
+  };
 
   const handleSaveBlock = async () => {
     try {
@@ -1230,6 +1270,9 @@ export const Agenda: React.FC<AgendaProps> = ({ user, onNavigateToPatient, onPat
               )}
               {selectedAppointment.status === 'PENDENTE' && (
                 <button onClick={handleConfirmPresence} className="w-full bg-emerald-500 hover:bg-emerald-600 text-white py-5 rounded-[24px] font-black text-sm uppercase tracking-widest shadow-2xl shadow-emerald-100 transition-all active:scale-95 flex items-center justify-center gap-2"><CheckCircle2 size={18} /> Confirmar Presença</button>
+              )}
+              {selectedAppointment.status === 'PENDENTE' && (
+                <button onClick={handleSendReminderWhatsApp} className="w-full bg-orange-500 hover:bg-orange-600 text-white py-5 rounded-[24px] font-black text-sm uppercase tracking-widest shadow-2xl shadow-orange-100 transition-all active:scale-95 flex items-center justify-center gap-2"><MessageCircle size={18} /> Enviar Lembrete WhatsApp</button>
               )}
               <div className="grid grid-cols-2 gap-3">
                 <button onClick={handleEditAppointment} className="bg-gray-50 hover:bg-gray-100 text-gray-500 py-4 rounded-xl font-black text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-2"><Edit size={16} /> Editar</button>

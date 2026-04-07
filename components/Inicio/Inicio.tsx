@@ -7,6 +7,7 @@ import {
 import { useAppointments } from '../../src/hooks/useAppointments';
 import { usePatients } from '../../src/hooks/usePatients';
 import { supabase } from '../../src/lib/supabase';
+import { useClinic } from '../../src/context/ClinicContext';
 
 interface InicioProps {
   user: User;
@@ -41,6 +42,43 @@ export const Inicio: React.FC<InicioProps> = ({ user, onNavigateToPatient }) => 
   const [selectedDate, setSelectedDate] = useState<string>(todayStr);
   const [filterStatus, setFilterStatus] = useState<'TODOS' | AppointmentStatus>('TODOS');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  
+  const { clinicSettings } = useClinic();
+
+  const handleSendReminderWhatsApp = useCallback((app: any) => {
+    let phone = '';
+    let name = '';
+
+    if (app.patientId) {
+      const patient = (patients || []).find((p: any) => p.id === app.patientId);
+      if (patient) {
+        phone = patient.phone || '';
+        name = patient.full_name || patient.name || '';
+      }
+    } else if (app.tempGuestPhone) {
+      phone = app.tempGuestPhone;
+      name = app.tempGuestName || '';
+    }
+
+    if (!phone) {
+      alert('Paciente não possui telefone cadastrado.');
+      return;
+    }
+
+    const cleanPhone = phone.replace(/\D/g, '');
+    const clinicName = clinicSettings?.clinic_name || 'nossa clínica';
+    
+    // Formata YYYY-MM-DD para DD/MM/YYYY
+    const dateParts = app.date.split('-');
+    const formattedDate = `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}`;
+
+    const textMsg = `Olá ${name}, aqui é da *${clinicName}*, vim lembrar que você tem um agendamento para ${formattedDate} às ${app.time}. Tudo certo para hoje?`;
+
+    window.open(
+      `https://wa.me/55${cleanPhone}?text=${encodeURIComponent(textMsg)}`,
+      '_blank'
+    );
+  }, [patients, clinicSettings]);
 
   // ── Modal de cadastro rápido ────────────────────────────────────────────
   const { setPatients } = usePatients() as any;
@@ -372,6 +410,16 @@ export const Inicio: React.FC<InicioProps> = ({ user, onNavigateToPatient }) => 
                       <Loader2 size={16} className="animate-spin text-slate-400" />
                     ) : (
                       <>
+                        {/* WhatsApp Lembrete — para pendentes */}
+                        {isPendente && (
+                          <button
+                            onClick={() => handleSendReminderWhatsApp(app)}
+                            title="Enviar lembrete pelo WhatsApp"
+                            className="w-8 h-8 flex items-center justify-center rounded-xl bg-orange-50 text-orange-500 hover:bg-orange-100 hover:scale-110 transition-all"
+                          >
+                            <MessageCircle size={15} />
+                          </button>
+                        )}
                         {/* Confirmar — só aparece se não estiver confirmado/realizado */}
                         {!isConfirmado && !isCancelado && (
                           <button
