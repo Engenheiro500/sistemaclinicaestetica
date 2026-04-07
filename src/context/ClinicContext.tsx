@@ -41,6 +41,15 @@ export const ClinicProvider: React.FC<ClinicProviderProps> = ({ children, initia
     }
   }, [settings.primary_color]);
 
+  // Update document title based on clinic name
+  useEffect(() => {
+    if (settings && settings.clinic_name) {
+      document.title = settings.clinic_name;
+    } else {
+      document.title = 'GestãoFisio - Gestão de Clínica';
+    }
+  }, [settings.clinic_name]);
+
   const hasPermission = useCallback((tab: string): boolean => {
     // 'perfil' é acessível para todos os cargos. Admin sempre tem acesso total.
     if (tab === 'perfil') return true;

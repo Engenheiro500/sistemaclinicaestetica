@@ -36,6 +36,15 @@ export const PublicScheduling: React.FC = () => {
 
     const today = startOfDay(new Date());
 
+    // Update document title dynamically based on clinic name
+    useEffect(() => {
+        if (clinicSettings && clinicSettings.clinic_name) {
+            document.title = clinicSettings.clinic_name;
+        } else {
+            document.title = 'GestãoFisio - Gestão de Clínica';
+        }
+    }, [clinicSettings.clinic_name]);
+
     useEffect(() => {
         if (!form.date) {
             setBookedTimes([]);
