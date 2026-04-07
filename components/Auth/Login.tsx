@@ -72,6 +72,15 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
       });
   }, []);
 
+  // Set the document title dynamically
+  useEffect(() => {
+    if (clinicDisplayName) {
+      document.title = `${clinicDisplayName} - Plataforma`;
+    } else {
+      document.title = 'GestãoFisio - Plataforma';
+    }
+  }, [clinicDisplayName]);
+
   const showToast = (message: string, type: 'error' | 'success' | 'warning') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 7000);
