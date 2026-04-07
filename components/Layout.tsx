@@ -189,7 +189,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, activeTab, onTab
 
   // Usa logo e nome da clínica do banco (ou defaults)
   const clinicLogoSrc = clinicSettings.logo_url || 'https://placehold.co/400x400/00a5b5/ffffff.png?text=Logo';
-  const clinicName = clinicSettings.clinic_name || 'GestãoEstética';
+  const clinicName = clinicSettings.clinic_name || 'Carregando...';
 
   return (
     <div className="min-h-screen flex bg-gray-50 overflow-hidden">

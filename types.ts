@@ -243,7 +243,7 @@ export const DEFAULT_PROFESSIONAL_PERMISSIONS: RolePermissions = {
 };
 
 export const DEFAULT_CLINIC_SETTINGS: ClinicSettings = {
-  clinic_name: 'GestãoEstética',
+  clinic_name: 'Carregando...',
   logo_url: undefined,
   primary_color: '#00a5b5',
   permissions: {

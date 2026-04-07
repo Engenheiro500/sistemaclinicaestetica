@@ -3,8 +3,15 @@ import { supabase } from '../lib/supabase';
 import { ClinicSettings, DEFAULT_CLINIC_SETTINGS } from '../../types';
 
 // ── Cache global SWR ───────────────────────────────────────────────────────────
-export let globalClinicSettingsCache: ClinicSettings | null = null;
+let initialCache: ClinicSettings | null = null;
+try {
+    const cached = localStorage.getItem('fisiopro_clinic_settings');
+    if (cached) {
+        initialCache = JSON.parse(cached);
+    }
+} catch (e) {}
 
+export let globalClinicSettingsCache: ClinicSettings | null = initialCache;
 function mapSettings(data: any): ClinicSettings {
     return {
         id: data.id,
@@ -33,6 +40,7 @@ export const prefetchClinicSettings = async () => {
             .single();
         if (!error && data) {
             globalClinicSettingsCache = mapSettings(data);
+            localStorage.setItem('fisiopro_clinic_settings', JSON.stringify(globalClinicSettingsCache));
         }
     } catch (err) {
         // Silencioso
@@ -72,8 +80,9 @@ export const useClinicSettings = () => {
 
                 if (data && isMountedRef.current) {
                     const newSettings = mapSettings(data);
-                    // ✅ Atualiza cache global
+                    // ✅ Atualiza cache global e local
                     globalClinicSettingsCache = newSettings;
+                    localStorage.setItem('fisiopro_clinic_settings', JSON.stringify(newSettings));
                     setSettings(newSettings);
                 }
             } catch (err) {
@@ -124,6 +133,7 @@ export const useClinicSettings = () => {
             if (result.data && isMountedRef.current) {
                 const saved = mapSettings(result.data);
                 globalClinicSettingsCache = saved;
+                localStorage.setItem('fisiopro_clinic_settings', JSON.stringify(saved));
                 setSettings(saved);
             }
 

@@ -15,7 +15,7 @@ const FullLogo: React.FC<{ logoUrl?: string; clinicName?: string }> = ({ logoUrl
         onError={(e) => { (e.target as HTMLImageElement).src = 'https://placehold.co/400x400/00a5b5/ffffff.png?text=Logo'; }}
       />
     </div>
-    <h1 className="text-2xl font-bold text-[#1e3a5a] tracking-tight">{clinicName || 'GestãoEstética'}</h1>
+    <h1 className="text-2xl font-bold text-[#1e3a5a] tracking-tight">{clinicName || 'Carregando...'}</h1>
     <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1 text-center">
       SISTEMA DE GESTÃO PARA CLÍNICAS E ESTÉTICAS
     </p>
@@ -51,8 +51,8 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' | 'warning' } | null>(null);
 
   // Branding dinâmico da clínica
-  const [clinicLogoUrl, setClinicLogoUrl] = useState<string | undefined>(undefined);
-  const [clinicDisplayName, setClinicDisplayName] = useState<string | undefined>(undefined);
+  const [clinicLogoUrl, setClinicLogoUrl] = useState<string | undefined>(() => localStorage.getItem('fisiopro_clinic_logo') || undefined);
+  const [clinicDisplayName, setClinicDisplayName] = useState<string | undefined>(() => localStorage.getItem('fisiopro_clinic_name') || undefined);
 
   useEffect(() => {
     supabase
@@ -66,8 +66,14 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
           return;
         }
         if (data) {
-          if (data.clinic_name) setClinicDisplayName(data.clinic_name);
-          if (data.logo_url) setClinicLogoUrl(data.logo_url);
+          if (data.clinic_name) {
+            setClinicDisplayName(data.clinic_name);
+            localStorage.setItem('fisiopro_clinic_name', data.clinic_name);
+          }
+          if (data.logo_url) {
+            setClinicLogoUrl(data.logo_url);
+            localStorage.setItem('fisiopro_clinic_logo', data.logo_url);
+          }
         }
       });
   }, []);
