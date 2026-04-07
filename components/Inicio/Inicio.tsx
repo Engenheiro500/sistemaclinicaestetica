@@ -43,19 +43,17 @@ export const Inicio: React.FC<InicioProps> = ({ user, onNavigateToPatient }) => 
   const [filterStatus, setFilterStatus] = useState<'TODOS' | AppointmentStatus>('TODOS');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   
-  const [showInstallBtn, setShowInstallBtn] = useState(false);
+  const [showInstallBtn, setShowInstallBtn] = useState(true);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
   React.useEffect(() => {
     if ((window as any).deferredPrompt) {
-      setShowInstallBtn(true);
       setDeferredPrompt((window as any).deferredPrompt);
     }
 
     const handleBeforeInstallPrompt = (e: any) => {
       e.preventDefault();
       setDeferredPrompt(e);
-      setShowInstallBtn(true);
       (window as any).deferredPrompt = e;
     };
 
@@ -71,7 +69,7 @@ export const Inicio: React.FC<InicioProps> = ({ user, onNavigateToPatient }) => 
 
   const handleInstallApp = async () => {
     if (!deferredPrompt) {
-      alert("A instalação não está disponível no momento. Tente abrir o sistema pelo Google Chrome e acesse o menu -> 'Adicionar à Tela Inicial' ou 'Instalar Aplicativo'.");
+      alert("A instalação automática não está disponível no seu navegador atual.\n\nPara instalar manualmente:\n\n1. Procure pelos 3 pontinhos (Menu) no topo direito do navegador.\n2. Clique em 'Salvar e Compartilhar' > 'Instalar Página como Aplicativo' ou 'Adicionar à Tela Inicial'.");
       return;
     }
     deferredPrompt.prompt();
